@@ -146,7 +146,7 @@
             </div>
 
             {{-- Process Detail Section (Details Table) --}}
-            <h3 class="mt-6 font-medium">Process Detail</h3>
+            <h3 id="process_detail_title" class="mt-6 font-medium">Process Detail</h3>
             <div class="mt-3">
               <div class="card card-border bg-base-100">
                 <div class="card-body p-0">
@@ -386,6 +386,12 @@
     ]
   };
 
+  function updateProcessDetailTitle(stepTitle = null) {
+    const baseTitle = 'Process Detail';
+    const title = stepTitle ? `${baseTitle}: ${stepTitle}` : baseTitle;
+    $('#process_detail_title').text(title);
+  }
+
   @foreach($boardingAppointments as $appointment)
     @if($appointment->pet)
       appointmentToPetMap[{{ $appointment->id }}] = {
@@ -457,6 +463,7 @@
     if (currentTab === 'treatment-lunch-rest') fetchYesterdayNextDayPetIds();
     loadProcessItems(currentTab);
     currentProcessItem = null;
+    updateProcessDetailTitle();
     updatePetCountsDisplay(0, null);
     $('#pet_details_table').hide();
     $('#empty_state_message').hide();
@@ -579,6 +586,8 @@
       $('.process-item').removeClass('active');
       $(this).addClass('active');
       currentProcessItem = $(this).data('process-id');
+      const stepTitle = $(this).find('.timeline-end span').first().text().trim();
+      updateProcessDetailTitle(stepTitle || null);
       toggleTableColumns(currentProcessItem);
       loadPetDetails();
     });
@@ -1341,6 +1350,37 @@
     'digestive': 'Digestive', 'diarrhea': 'Diarrhea'
   };
 
+  function getTreatmentPlanSelectionValues(petTreatmentData) {
+    if (!petTreatmentData || typeof petTreatmentData !== 'object') {
+      return [];
+    }
+
+    if (Array.isArray(petTreatmentData.additional_options)) {
+      return petTreatmentData.additional_options.filter(Boolean);
+    }
+
+    if (Array.isArray(petTreatmentData.selected_treatments)) {
+      return petTreatmentData.selected_treatments.filter(Boolean);
+    }
+
+    if (Array.isArray(petTreatmentData.selected_treatment)) {
+      return petTreatmentData.selected_treatment.filter(Boolean);
+    }
+
+    if (Array.isArray(petTreatmentData.treatment)) {
+      return petTreatmentData.treatment.filter(Boolean);
+    }
+
+    const singleValue =
+      petTreatmentData.additional_option ||
+      petTreatmentData.selected_treatment ||
+      petTreatmentData.selected_treatments ||
+      petTreatmentData.treatment ||
+      '';
+
+    return singleValue ? [singleValue] : [];
+  }
+
   function getTreatmentListBasePetIds() {
     const treatmentPlanData = workflowData['treatment_plan'] || {};
     const todayIds = (treatmentPlanData.selected_pet_ids || []).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
@@ -1436,6 +1476,7 @@
     const treatmentListBasePetIds = getTreatmentListBasePetIds();
     const treatmentPlanData = workflowData['treatment_plan'] || {};
     const treatmentPlanPetIds = treatmentPlanData.selected_pet_ids || [];
+    const treatmentPlanTreatmentData = treatmentPlanData.treatment_data || {};
     const checkPetData = workflowData['check_pet'] || {};
     const checkPetCheckData = checkPetData.check_data || {};
     const currentData = workflowData['treatments_tlr'] || {};
@@ -1457,7 +1498,7 @@
       return false;
     }
     $('#treatment_lunch_rest_form_container').show();
-    $('#treatment_lunch_rest_thead').html('<tr><th style="min-width: 200px;">Pet</th><th style="min-width: 200px;">Customer</th><th style="min-width: 200px;">Issue</th><th style="min-width: 220px;">Result</th><th style="min-width: 300px;">Detail</th></tr>');
+    $('#treatment_lunch_rest_thead').html('<tr><th style="min-width: 200px;">Pet</th><th style="min-width: 200px;">Customer</th><th style="min-width: 200px;">Issue</th><th style="min-width: 220px;">Treatment</th><th style="min-width: 280px;">Treatment Plan Detail</th><th style="min-width: 220px;">Result</th><th style="min-width: 300px;">Detail</th></tr>');
     let bodyHtml = '';
     treatmentListBasePetIds.forEach(appointmentId => {
         const pet = appointmentToPetMap[appointmentId];
@@ -1477,6 +1518,10 @@
           });
         }
         const issuesText = inTreatmentPlan ? (issues.join(', ') || 'No issues') : (fromReportsAmOnly ? 'Do not eat AM Meals' : 'Carried from previous day');
+        const petTreatmentData = treatmentPlanTreatmentData[appointmentId] || {};
+        const treatmentSelections = getTreatmentPlanSelectionValues(petTreatmentData);
+        const treatmentSelectionText = treatmentSelections.length > 0 ? treatmentSelections.join(', ') : '-';
+        const treatmentPlanDetail = (petTreatmentData.detail || petTreatmentData.details || '').trim() || '-';
         const saved = savedResults[appointmentId] || {};
         const resultVal = saved.result || '';
         const detailVal = saved.detail || '';
@@ -1484,6 +1529,8 @@
         bodyHtml += `<td><div class="flex items-center space-x-3"><img src="${petAvatarUrl}" alt="Pet" class="mask mask-squircle bg-base-200 size-10" /><span>${pet.pet_name || 'N/A'}</span></div></td>`;
         bodyHtml += `<td><div class="flex items-center space-x-3"><img src="${customerAvatarUrl}" alt="Customer" class="mask mask-squircle bg-base-200 size-10" /><span>${pet.customer_name || 'N/A'}</span></div></td>`;
         bodyHtml += `<td><span class="text-sm">${issuesText}</span></td>`;
+        bodyHtml += `<td><span class="text-sm">${treatmentSelectionText !== '-' ? treatmentSelectionText.replace(/</g, '&lt;').replace(/>/g, '&gt;') : '-'}</span></td>`;
+        bodyHtml += `<td><span class="text-sm">${treatmentPlanDetail !== '-' ? treatmentPlanDetail.replace(/</g, '&lt;').replace(/>/g, '&gt;') : '-'}</span></td>`;
         bodyHtml += `<td><div class="flex flex-wrap gap-2 items-center">`;
         bodyHtml += `<label class="label cursor-pointer gap-1 py-0 min-h-0"><input type="radio" name="result_tlr_${appointmentId}" value="continue" class="radio radio-xs radio-primary" ${resultVal === 'continue' ? 'checked' : ''} /><span class="label-text text-xs">Continue</span></label>`;
         bodyHtml += `<label class="label cursor-pointer gap-1 py-0 min-h-0"><input type="radio" name="result_tlr_${appointmentId}" value="resolved" class="radio radio-xs radio-primary" ${resultVal === 'resolved' ? 'checked' : ''} /><span class="label-text text-xs">Resolved</span></label>`;
@@ -2364,6 +2411,7 @@
         treatmentPlanData[appointmentId] = {
           option: option,
           additional_options: Array.isArray(additionalOptions) ? additionalOptions : (additionalOptions ? [additionalOptions] : []),
+          selected_treatments: Array.isArray(additionalOptions) ? additionalOptions : (additionalOptions ? [additionalOptions] : []),
           detail: detail,
           assign_rest: assignRest
         };
@@ -2655,6 +2703,7 @@
 
   updateSelectedPets();
   loadProcessItems(currentTab);
+  updateProcessDetailTitle();
   updateWorkflowProgress();
   updatePetCountsDisplay(0, null);
 </script>

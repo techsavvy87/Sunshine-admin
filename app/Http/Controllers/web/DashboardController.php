@@ -93,6 +93,7 @@ class DashboardController extends Controller
 
         $todayBoardingCheckins = $this->countBoardingPetsByDate('date', $today);
         $todayBoardingCheckouts = $this->countBoardingPetsByDate('end_date', $today);
+        $dogsOnProperty = $this->countBoardingDogsOnProperty();
         $boardingServiceIds = Service::whereHas('category', function ($query) {
             $query->whereRaw('LOWER(name) LIKE ?', ['%boarding%']);
         })->pluck('id');
@@ -126,12 +127,15 @@ class DashboardController extends Controller
                 $appointment->total_price = $appointment->estimated_price ?? 0;
             }
         }
+
+        $treatmentListItems = $this->getDashboardTreatmentListItems($today);
+        $checkoutDayAdditionalServiceItems = $this->getDashboardCheckoutDayAdditionalServiceItems($today);
         
         $period = $request->get('period', 'month');
         
         $revenueData = $this->getRevenueStatistics($period);
         
-        return view('dashboard.index', compact('active', 'todayRevenue', 'yesterdayRevenue', 'percentageChange', 'totalCustomers', 'customerPercentageChange', 'todayNewCustomers', 'yesterdayCustomers', 'totalPets', 'petPercentageChange', 'todayNewPets', 'yesterdayNewPets', 'todayAppointments', 'todayBoardingCheckins', 'todayBoardingCheckouts', 'todayBoardingIncidents', 'incidentReportServiceId', 'yesterdayAppointments', 'appointmentPercentageChange', 'recentAppointments', 'revenueData', 'period'));
+        return view('dashboard.index', compact('active', 'todayRevenue', 'yesterdayRevenue', 'percentageChange', 'totalCustomers', 'customerPercentageChange', 'todayNewCustomers', 'yesterdayCustomers', 'totalPets', 'petPercentageChange', 'todayNewPets', 'yesterdayNewPets', 'todayAppointments', 'todayBoardingCheckins', 'todayBoardingCheckouts', 'dogsOnProperty', 'todayBoardingIncidents', 'incidentReportServiceId', 'yesterdayAppointments', 'appointmentPercentageChange', 'recentAppointments', 'treatmentListItems', 'checkoutDayAdditionalServiceItems', 'revenueData', 'period'));
     }
 
     public function serviceDashboard(Request $request, $id)
@@ -525,6 +529,298 @@ class DashboardController extends Controller
         ];
     }
 
+    private function getDashboardTreatmentListItems(Carbon $date)
+    {
+        $processes = Process::with(['appointment.pet', 'appointment.service.category'])
+            ->whereDate('date', $date)
+            ->whereHas('appointment.service.category', function ($query) {
+                $query->whereRaw('LOWER(name) LIKE ?', ['%boarding%']);
+            })
+            ->get()
+            ->keyBy('appointment_id');
+
+        if ($processes->isEmpty()) {
+            return collect();
+        }
+
+        $workflowData = $processes->reduce(function ($carry, Process $process) {
+            $flows = $process->flows ? json_decode($process->flows, true) : [];
+            if (!is_array($flows)) {
+                return $carry;
+            }
+
+            return array_replace_recursive($carry, $flows);
+        }, []);
+
+        $yesterdayWorkflowData = $this->getDashboardYesterdayTreatmentWorkflowData($date, $processes->keys()->all());
+
+        $treatmentAppointmentIds = $this->getDashboardTreatmentAppointmentIdsFromFlows($workflowData);
+
+        $treatmentAppointmentIds = $treatmentAppointmentIds
+            ->merge($this->getDashboardYesterdayTreatmentAppointmentIds($date, $processes->keys()->all()))
+            ->map(fn ($appointmentId) => (int) $appointmentId)
+            ->filter(fn ($appointmentId) => $appointmentId > 0 && $processes->has($appointmentId))
+            ->unique()
+            ->values();
+
+        return $treatmentAppointmentIds->map(function (int $appointmentId) use ($processes, $workflowData, $yesterdayWorkflowData) {
+            $process = $processes->get($appointmentId);
+            if (!$process) {
+                return null;
+            }
+
+            $treatmentPlanData = $this->getDashboardAppointmentFlowData(
+                data_get($workflowData, 'treatment_plan.treatment_data', []),
+                $appointmentId
+            );
+            $treatmentsTlrResult = $this->getDashboardAppointmentFlowData(
+                data_get($workflowData, 'treatments_tlr.results', []),
+                $appointmentId
+            );
+
+            if (empty($treatmentPlanData)) {
+                $treatmentPlanData = $this->getDashboardAppointmentFlowData(
+                    data_get($yesterdayWorkflowData, 'treatment_plan.treatment_data', []),
+                    $appointmentId
+                );
+            }
+
+            if (empty($treatmentsTlrResult)) {
+                $treatmentsTlrResult = $this->getDashboardAppointmentFlowData(
+                    data_get($yesterdayWorkflowData, 'treatments_tlr.results', []),
+                    $appointmentId
+                );
+            }
+
+            $treatments = $this->extractDashboardTreatmentSelections($treatmentPlanData);
+            $planDetail = trim((string) ($treatmentPlanData['detail'] ?? $treatmentPlanData['details'] ?? ''));
+            $resultDetail = trim((string) ($treatmentsTlrResult['detail'] ?? ''));
+            $status = $this->mapDashboardTreatmentStatus($treatmentsTlrResult['result'] ?? null);
+
+            return [
+                'appointment_id' => $appointmentId,
+                'pet_name' => optional($process->appointment?->pet)->name ?? 'N/A',
+                'pet_img' => optional($process->appointment?->pet)->pet_img,
+                'treatment_label' => !empty($treatments) ? implode(', ', $treatments) : 'Treatment',
+                'detail' => $resultDetail !== '' ? $resultDetail : $planDetail,
+                'status' => $status,
+                'time' => $this->formatDashboardTime(
+                    data_get($workflowData, 'treatment_plan.process_time')
+                    ?: data_get($workflowData, 'check_pet.process_time')
+                    ?: $process->start_time
+                ),
+                'sort_time' => data_get($workflowData, 'treatment_plan.process_time')
+                    ?: data_get($workflowData, 'check_pet.process_time')
+                    ?: $process->start_time,
+            ];
+        })->filter()->sortBy(function (array $item) {
+            return $item['sort_time'] ?: '23:59:59';
+        })->values();
+    }
+
+    private function getDashboardAppointmentFlowData($items, int $appointmentId): array
+    {
+        if (!is_array($items)) {
+            return [];
+        }
+
+        $value = $items[$appointmentId] ?? $items[(string) $appointmentId] ?? [];
+
+        return is_array($value) ? $value : [];
+    }
+
+    private function getDashboardTreatmentAppointmentIdsFromFlows(array $flows)
+    {
+        return $this->normalizeDashboardServiceIds(data_get($flows, 'treatment_plan.selected_pet_ids', []))
+            ->merge($this->normalizeDashboardServiceIds(data_get($flows, 'reports_am.selected_pet_ids', [])))
+            ->merge($this->normalizeDashboardServiceIds(data_get($flows, 'treatments_tlr.selected_pet_ids', [])))
+            ->unique()
+            ->values();
+    }
+
+    private function getDashboardYesterdayTreatmentAppointmentIds(Carbon $date, array $appointmentIds)
+    {
+        if (empty($appointmentIds)) {
+            return collect();
+        }
+
+        $yesterdayProcesses = $this->getDashboardYesterdayProcesses($date, $appointmentIds);
+
+        return $yesterdayProcesses->reduce(function ($carry, Process $process) {
+            $flows = $process->flows ? json_decode($process->flows, true) : [];
+            if (!is_array($flows)) {
+                return $carry;
+            }
+
+            return $carry
+                ->merge($this->normalizeDashboardServiceIds(data_get($flows, 'next_day_treatment_list_tlr.selected_pet_ids', [])))
+                ->merge($this->normalizeDashboardServiceIds(data_get($flows, 'reports_pm.selected_pet_ids', [])));
+        }, collect())->unique()->values();
+    }
+
+    private function getDashboardYesterdayTreatmentWorkflowData(Carbon $date, array $appointmentIds): array
+    {
+        return $this->getDashboardYesterdayProcesses($date, $appointmentIds)->reduce(function ($carry, Process $process) {
+            $flows = $process->flows ? json_decode($process->flows, true) : [];
+            if (!is_array($flows)) {
+                return $carry;
+            }
+
+            return array_replace_recursive($carry, $flows);
+        }, []);
+    }
+
+    private function getDashboardYesterdayProcesses(Carbon $date, array $appointmentIds)
+    {
+        if (empty($appointmentIds)) {
+            return collect();
+        }
+
+        return Process::whereDate('date', $date->copy()->subDay())
+            ->whereIn('appointment_id', $appointmentIds)
+            ->get();
+    }
+
+    private function mapDashboardTreatmentStatus($status): string
+    {
+        return match ((string) $status) {
+            'continue' => 'Continue',
+            'resolved' => 'Resolved',
+            'escalate' => 'Escalate',
+            default => 'Pending',
+        };
+    }
+
+    private function getDashboardCheckoutDayAdditionalServiceItems(Carbon $date)
+    {
+        $appointments = Appointment::with(['pet', 'service.category'])
+            ->whereDate('end_date', $date)
+            ->whereNotIn('status', ['cancelled', 'canceled', 'no_show'])
+            ->whereHas('service.category', function ($query) {
+                $query->whereRaw('LOWER(name) LIKE ?', ['%boarding%']);
+            })
+            ->get();
+
+        if ($appointments->isEmpty()) {
+            return collect();
+        }
+
+        $checkinsByAppointment = Checkin::whereIn('appointment_id', $appointments->pluck('id'))
+            ->get()
+            ->keyBy('appointment_id');
+
+        $serviceIds = $appointments->flatMap(function (Appointment $appointment) use ($checkinsByAppointment) {
+            $checkin = $checkinsByAppointment->get($appointment->id);
+            $checkinFlows = $checkin && $checkin->flows ? json_decode($checkin->flows, true) : [];
+            $checkinServices = is_array($checkinFlows)
+                ? $this->normalizeDashboardServiceIds($checkinFlows['additional_services_link'] ?? [])
+                : collect();
+            $appointmentServices = $this->normalizeDashboardServiceIds($appointment->additional_service_ids ?? []);
+
+            return $checkinServices->merge($appointmentServices);
+        })->unique()->values();
+
+        if ($serviceIds->isEmpty()) {
+            return collect();
+        }
+
+        $serviceNames = Service::whereIn('id', $serviceIds)->pluck('name', 'id');
+
+        return $appointments->map(function (Appointment $appointment) use ($checkinsByAppointment, $serviceNames) {
+            $checkin = $checkinsByAppointment->get($appointment->id);
+            $checkinFlows = $checkin && $checkin->flows ? json_decode($checkin->flows, true) : [];
+            $checkinServices = is_array($checkinFlows)
+                ? $this->normalizeDashboardServiceIds($checkinFlows['additional_services_link'] ?? [])
+                : collect();
+            $appointmentServices = $this->normalizeDashboardServiceIds($appointment->additional_service_ids ?? []);
+            $serviceIds = $checkinServices->merge($appointmentServices)->unique()->values();
+
+            if ($serviceIds->isEmpty()) {
+                return null;
+            }
+
+            $familyPets = $appointment->familyPets ?? collect();
+            $primaryPet = $appointment->pet ?: $familyPets->first();
+            $petNames = $familyPets->pluck('name')->filter()->values();
+
+            if ($petNames->isEmpty() && $primaryPet && !empty($primaryPet->name)) {
+                $petNames = collect([$primaryPet->name]);
+            }
+
+            $serviceNamesForAppointment = $serviceIds
+                ->map(fn (int $serviceId) => $serviceNames->get($serviceId, 'Additional Service'))
+                ->filter()
+                ->unique()
+                ->values();
+
+            return [
+                'appointment_id' => $appointment->id,
+                'pet_name' => $petNames->isNotEmpty() ? $petNames->join(', ') : 'N/A',
+                'pet_img' => $primaryPet->pet_img ?? null,
+                'service_name' => $serviceNamesForAppointment->join(', ', ' & '),
+                'time' => $this->formatDashboardTime($appointment->start_time),
+                'sort_time' => $appointment->start_time,
+            ];
+        })->sortBy(function (array $item) {
+            return $item['sort_time'] ?: '23:59:59';
+        })->values();
+    }
+
+    private function extractDashboardTreatmentSelections(array $treatmentPlanData): array
+    {
+        foreach (['additional_options', 'selected_treatments', 'selected_treatment', 'treatment'] as $key) {
+            $value = $treatmentPlanData[$key] ?? null;
+
+            if (is_array($value)) {
+                return array_values(array_filter(array_map('trim', $value)));
+            }
+
+            if (is_string($value) && trim($value) !== '') {
+                return [trim($value)];
+            }
+        }
+
+        $singleValue = trim((string) ($treatmentPlanData['additional_option'] ?? ''));
+
+        return $singleValue !== '' ? [$singleValue] : [];
+    }
+
+    private function normalizeDashboardServiceIds($raw)
+    {
+        if (is_array($raw)) {
+            return collect($raw)
+                ->map(fn ($serviceId) => (int) $serviceId)
+                ->filter(fn ($serviceId) => $serviceId > 0)
+                ->values();
+        }
+
+        return collect(explode(',', (string) $raw))
+            ->map(fn ($serviceId) => (int) trim($serviceId))
+            ->filter(fn ($serviceId) => $serviceId > 0)
+            ->values();
+    }
+
+    private function formatDashboardTime($value): string
+    {
+        if (empty($value)) {
+            return 'Any time';
+        }
+
+        try {
+            return Carbon::parse($value)->format('g:i A');
+        } catch (\Exception $e) {
+            try {
+                return Carbon::createFromFormat('H:i', (string) $value)->format('g:i A');
+            } catch (\Exception $e) {
+                try {
+                    return Carbon::createFromFormat('H:i:s', (string) $value)->format('g:i A');
+                } catch (\Exception $e) {
+                    return 'Any time';
+                }
+            }
+        }
+    }
+
     private function countBoardingPetsByDate(string $dateColumn, Carbon $date): int
     {
         $appointments = Appointment::with('pet:id,type')
@@ -550,6 +846,33 @@ class DashboardController extends Controller
 
             $petType = optional($appointment->pet)->type;
             return in_array($petType, ['Dog', 'Cat'], true) ? 1 : 0;
+        });
+    }
+
+    private function countBoardingDogsOnProperty(): int
+    {
+        $appointments = Appointment::with('pet:id,type')
+            ->where('status', 'in_progress')
+            ->whereHas('service.category', function ($query) {
+                $query->whereRaw('LOWER(name) LIKE ?', ['%boarding%']);
+            })
+            ->get();
+
+        return $appointments->sum(function (Appointment $appointment) {
+            $familyPetIds = collect($appointment->family_pet_ids)
+                ->map(fn ($petId) => (int) $petId)
+                ->filter(fn ($petId) => $petId > 0)
+                ->unique()
+                ->values();
+
+            if ($familyPetIds->isNotEmpty()) {
+                return PetProfile::whereIn('id', $familyPetIds)
+                    ->where('type', 'Dog')
+                    ->count();
+            }
+
+            $petType = optional($appointment->pet)->type;
+            return $petType === 'Dog' ? 1 : 0;
         });
     }
 
