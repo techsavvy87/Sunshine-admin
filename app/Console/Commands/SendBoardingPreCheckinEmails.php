@@ -65,7 +65,9 @@ class SendBoardingPreCheckinEmails extends Command
             $link->expires_at = $checkinAt->copy()->setTimezone(config('app.timezone'));
             $link->save();
 
-            $url = route('pre-checkin.show', ['token' => $rawToken]);
+            $precheckinBaseUrl = rtrim((string) config('app.precheckin_url', config('app.url')), '/');
+            $precheckinPath = route('pre-checkin.show', ['token' => $rawToken], false);
+            $url = $precheckinBaseUrl . $precheckinPath;
             $customerName = trim((string) (($appointment->customer?->profile?->first_name ?? '') . ' ' . ($appointment->customer?->profile?->last_name ?? '')));
             if ($customerName === '') {
                 $customerName = $appointment->customer?->name ?? 'Customer';

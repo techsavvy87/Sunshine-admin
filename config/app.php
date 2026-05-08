@@ -54,6 +54,9 @@ return [
 
     'url' => env('APP_URL', 'http://localhost'),
 
+    // Optional dedicated base URL for pre-checkin links sent from CLI jobs.
+    'precheckin_url' => env('PRECHECKIN_URL', env('APP_URL', 'http://localhost')),
+
     /*
     |--------------------------------------------------------------------------
     | Application Timezone
