@@ -31,6 +31,12 @@ use App\Http\Controllers\web\PetBehaviorController;
 use App\Http\Controllers\web\FacilityAddressController;
 use App\Http\Controllers\web\KennelController;
 use App\Http\Controllers\web\RoomController;
+use App\Http\Controllers\web\PreCheckinController;
+
+Route::controller(PreCheckinController::class)->group(function () {
+    Route::get('/pre-checkin/{token}', 'show')->name('pre-checkin.show');
+    Route::post('/pre-checkin/{token}', 'save')->name('pre-checkin.save');
+});
 
 Route::controller(AuthController::class)->group(function () {
     Route::get('/login', 'login')->name('login');

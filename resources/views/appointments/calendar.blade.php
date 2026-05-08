@@ -21,6 +21,9 @@
   .fc-h-event .fc-event-main {
     color: unset !important;
   }
+  #weekly_view_mode {
+    margin-bottom: 8px;
+  }
 </style>
 @endsection
 
@@ -43,20 +46,44 @@
 <div class="mt-3">
   <div class="card bg-base-100 shadow mt-3">
     <div class="card-body p-4">
-      <form method="GET" class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center" action="{{ route('view-appointment-calendar') }}">
-        <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
-          <label class="text-sm font-medium" for="service">Service</label>
-          <div class="flex items-center gap-2">
-            <select id="service" name="service" class="select select-bordered select-sm w-auto min-w-[200px]" onchange="this.form.submit()">
-              <option value="">All services</option>
-              @foreach($services as $service)
-                <option value="{{ $service->id }}" {{ $serviceId == $service->id ? 'selected' : '' }}>{{ $service->name }}</option>
-              @endforeach
-            </select>
-            <a href="{{ route('view-appointment-calendar') }}" class="btn btn-ghost btn-sm" {{ request('service') ? '' : 'disabled' }}>Reset</a>
-          </div>
+      <div class="flex flex-row items-end gap-3 sm:flex-row sm:items-end sm:gap-4">
+        <div class="flex flex-col gap-2">
+          <label class="text-sm font-medium" for="weekly_view_mode">Weekly View</label>
+          <select id="weekly_view_mode" class="select select-bordered select-sm w-auto min-w-[220px]">
+            <option value="standard" selected>Standard Week (Mon-Sun)</option>
+            <option value="boarding">Boarding Week (Thu-Mon)</option>
+            <option value="custom">Custom</option>
+          </select>
         </div>
-      </form>
+
+        <div id="custom_weekly_range" class="hidden flex-wrap items-center gap-2 rounded-box bg-base-200/40 px-3 py-2">
+          <div class="flex items-center gap-2">
+            <label class="text-sm font-medium whitespace-nowrap" for="custom_start_day">Start</label>
+            <select id="custom_start_day" class="select select-bordered select-sm w-auto min-w-[140px]">
+              <option value="1">Monday</option>
+              <option value="2">Tuesday</option>
+              <option value="3">Wednesday</option>
+              <option value="4">Thursday</option>
+              <option value="5">Friday</option>
+              <option value="6">Saturday</option>
+              <option value="0">Sunday</option>
+            </select>
+          </div>
+          <div class="flex items-center gap-2">
+            <label class="text-sm font-medium whitespace-nowrap" for="custom_end_day">End</label>
+            <select id="custom_end_day" class="select select-bordered select-sm w-auto min-w-[140px]">
+              <option value="1">Monday</option>
+              <option value="2">Tuesday</option>
+              <option value="3">Wednesday</option>
+              <option value="4">Thursday</option>
+              <option value="5">Friday</option>
+              <option value="6">Saturday</option>
+              <option value="0">Sunday</option>
+            </select>
+          </div>
+          <button type="button" id="apply_custom_week" class="btn btn-primary btn-sm shrink-0">Apply</button>
+        </div>
+      </div>
 
       <div id="calendar"></div>
     </div>
@@ -67,11 +94,13 @@
 @section('page-js')
   <script src="{{ asset('src/libs/fullcalendar-6.1.19/dist/index.global.min.js') }}"></script>
   <script>
-    const appointments = @json($appointments)
+    const appointments = @js($appointments);
+    const weekModeDefaults = {
+      standard: { startDay: 1, endDay: 0, durationDays: 7, label: 'Week' },
+      boarding: { startDay: 4, endDay: 1, durationDays: 5, label: 'Boarding Week' },
+    };
 
     document.addEventListener('DOMContentLoaded', function() {
-      console.log('AAAA==', appointments);
-
       const serviceColors = {
         'Groom': '#3b82f6',
         'Grooming': '#3b82f6',
@@ -181,9 +210,55 @@
         color: serviceColors[normalizeServiceName(appointment.service_name)] || '#6366f1', // Use normalized service name for color
       }));
 
+      function getWeekDurationDays(startDay, endDay) {
+        return ((endDay - startDay + 7) % 7) + 1;
+      }
+
+      function getAnchorDateForWeek(baseDate, startDay) {
+        const anchor = new Date(baseDate);
+        anchor.setHours(0, 0, 0, 0);
+        const diff = (anchor.getDay() - startDay + 7) % 7;
+        anchor.setDate(anchor.getDate() - diff);
+        return anchor;
+      }
+
+      function getHiddenDays(startDay, endDay) {
+        const visibleDays = [];
+        let currentDay = startDay;
+
+        while (true) {
+          visibleDays.push(currentDay);
+          if (currentDay === endDay) {
+            break;
+          }
+          currentDay = (currentDay + 1) % 7;
+        }
+
+        return [0, 1, 2, 3, 4, 5, 6].filter(day => !visibleDays.includes(day));
+      }
+
+      const standardAnchorDate = getAnchorDateForWeek(new Date(), weekModeDefaults.standard.startDay);
+
+      const weeklyViewModeEl = document.getElementById('weekly_view_mode');
+      const customWeeklyRangeEl = document.getElementById('custom_weekly_range');
+      const customStartDayEl = document.getElementById('custom_start_day');
+      const customEndDayEl = document.getElementById('custom_end_day');
+      const applyCustomWeekEl = document.getElementById('apply_custom_week');
+
       var calendarEl = document.getElementById('calendar');
       var calendar = new FullCalendar.Calendar(calendarEl, {
+        initialDate: standardAnchorDate,
         initialView: 'timeGridWeek',
+        firstDay: weekModeDefaults.standard.startDay,
+        views: {
+          timeGridWeek: {
+            type: 'timeGrid',
+            duration: { days: weekModeDefaults.standard.durationDays },
+            dateAlignment: 'day',
+            dateIncrement: { days: weekModeDefaults.standard.durationDays },
+            buttonText: weekModeDefaults.standard.label,
+          }
+        },
         headerToolbar: {
           left: 'prev,next today',
           center: 'title',
@@ -320,6 +395,59 @@ ${appointments.find(a => a.id == info.event.id)?.class_name ? `Class: ${appointm
           });
         }
       });
+
+      function applyWeeklyMode(mode) {
+        let weekConfig;
+
+        if (mode === 'custom') {
+          const startDay = Number(customStartDayEl.value);
+          const endDay = Number(customEndDayEl.value);
+          const durationDays = getWeekDurationDays(startDay, endDay);
+          weekConfig = {
+            startDay,
+            endDay,
+            durationDays,
+            label: `${durationDays} Days`,
+          };
+        } else {
+          weekConfig = weekModeDefaults[mode] || weekModeDefaults.standard;
+        }
+
+        const currentDate = calendar.getDate();
+        const anchorDate = getAnchorDateForWeek(currentDate, weekConfig.startDay);
+
+        calendar.setOption('firstDay', weekConfig.startDay);
+        calendar.setOption('hiddenDays', getHiddenDays(weekConfig.startDay, weekConfig.endDay));
+        calendar.setOption('views', {
+          timeGridWeek: {
+            type: 'timeGrid',
+            duration: { days: weekConfig.durationDays },
+            dateAlignment: 'day',
+            dateIncrement: { days: weekConfig.durationDays },
+            buttonText: weekConfig.label,
+          }
+        });
+
+        if (calendar.view.type === 'timeGridWeek') {
+          calendar.changeView('timeGridWeek', anchorDate);
+        }
+      }
+
+      weeklyViewModeEl.addEventListener('change', function() {
+        const selectedMode = weeklyViewModeEl.value;
+        const isCustom = selectedMode === 'custom';
+        customWeeklyRangeEl.classList.toggle('hidden', !isCustom);
+        customWeeklyRangeEl.classList.toggle('flex', isCustom);
+
+        if (!isCustom) {
+          applyWeeklyMode(selectedMode);
+        }
+      });
+
+      applyCustomWeekEl.addEventListener('click', function() {
+        applyWeeklyMode('custom');
+      });
+
       calendar.render();
     });
   </script>

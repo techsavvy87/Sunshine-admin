@@ -170,15 +170,28 @@
               </td>
               <td>{{ $kennel->name }}</td>
               <td>
-                @if (isset($kennel->current_pets) && $kennel->current_pets->isNotEmpty())
+                @if (isset($kennel->assigned_pet_bookings) && $kennel->assigned_pet_bookings->isNotEmpty())
                   <div class="flex flex-col gap-2">
-                    @foreach ($kennel->current_pets as $pet)
-                      <div class="flex items-center gap-2">
-                        <img src="{{ empty($pet->pet_img) ? asset('images/no_image.jpg') : asset('storage/pets/' . $pet->pet_img) }}" alt="Pet Image" class="mask mask-squircle bg-base-200 size-8">
-                        <span>{{ $pet->name }}</span>
+                    @foreach ($kennel->assigned_pet_bookings as $booking)
+                      <div class="rounded-box bg-base-200/40 px-2 py-1.5">
+                        <p class="text-xs text-base-content/60 mb-1">
+                          {{ \Carbon\Carbon::parse($booking->start_date)->format('M j, Y') }}
+                          -
+                          {{ \Carbon\Carbon::parse($booking->end_date)->format('M j, Y') }}
+                        </p>
+                        <div class="flex flex-col gap-1.5">
+                          @foreach ($booking->pets as $pet)
+                            <div class="flex items-center gap-2">
+                              <img src="{{ empty($pet->pet_img) ? asset('images/no_image.jpg') : asset('storage/pets/' . $pet->pet_img) }}" alt="Pet Image" class="mask mask-squircle bg-base-200 size-8">
+                              <span>{{ $pet->name }}</span>
+                            </div>
+                          @endforeach
+                        </div>
                       </div>
                     @endforeach
                   </div>
+                @else
+                  <span class="text-base-content/60">No assigned pets</span>
                 @endif
               </td>
               <td>

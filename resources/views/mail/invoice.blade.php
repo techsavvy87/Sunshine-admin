@@ -195,6 +195,16 @@
             <td colspan="2" style="text-align: right; font-weight: 600;">Total Inventory Amount:</td>
             <td style="text-align: right; font-weight: 600;">${{ number_format($invoiceData['total_inventory_amount'] ?? 0, 2) }}</td>
           </tr>
+          <tr>
+            <td colspan="2" style="text-align: right; font-weight: 600;">Subtotal:</td>
+            <td style="text-align: right; font-weight: 600;">${{ number_format($invoiceData['subtotal_amount'] ?? 0, 2) }}</td>
+          </tr>
+          @if(!empty($invoiceData['state_tax_rate']) && ($invoiceData['state_tax_rate'] > 0))
+          <tr>
+            <td colspan="2" style="text-align: right; font-weight: 600;">State Tax ({{ number_format($invoiceData['state_tax_rate'], 2) }}%):</td>
+            <td style="text-align: right; font-weight: 600;">${{ number_format($invoiceData['state_tax_amount'] ?? 0, 2) }}</td>
+          </tr>
+          @endif
           <tr class="total-row">
             <td colspan="2" style="text-align: right;">Total Amount:</td>
             <td style="text-align: right;">${{ number_format($invoiceData['total_amount'] ?? 0, 2) }}</td>

@@ -111,7 +111,7 @@
               </select>
             </div>
           </div>
-          <div class="space-y-2" id="time_slot_group">
+          <div class="space-y-2 hidden" id="time_slot_group">
             <label class="fieldset-label" for="time_slot">Start Time - End Time*</label>
             <select class="select w-full" name="time_slot" id="time_slot">
               <option value="" hidden selected>Choose a time slot</option>
@@ -337,12 +337,12 @@
 
       $('#pet').on('change', function() {
         updateBoardingLocationField();
-        handleAdditionalServiceTimeSlotState();
+        refreshAdditionalServiceTimeSlotsIfNeeded();
         refreshAvailableKennels();
       });
 
       $('#boarding_start_datetime, #boarding_end_datetime').on('change', function() {
-        handleAdditionalServiceTimeSlotState();
+        refreshAdditionalServiceTimeSlotsIfNeeded();
         refreshAvailableKennels();
       });
 
@@ -377,7 +377,8 @@
         width: '100%',
         closeOnSelect: false
       }).on('change', function() {
-        handleAdditionalServiceTimeSlotState();
+        syncAdditionalServiceTimeSlotVisibility();
+        refreshAdditionalServiceTimeSlotsIfNeeded();
       });
 
       var selectedServiceId = $('#service').val();
@@ -385,7 +386,8 @@
         checkServiceType(selectedServiceId);
         updateAdditionalServices(selectedServiceId);
         updateBoardingLocationField();
-        handleAdditionalServiceTimeSlotState();
+        syncAdditionalServiceTimeSlotVisibility();
+        refreshAdditionalServiceTimeSlotsIfNeeded();
         refreshAvailableKennels();
       }
     });
@@ -462,7 +464,8 @@
 
       checkServiceType(serviceId);
       updateAdditionalServices(serviceId);
-      handleAdditionalServiceTimeSlotState();
+      syncAdditionalServiceTimeSlotVisibility();
+      refreshAdditionalServiceTimeSlotsIfNeeded();
       refreshAvailableKennels();
     }
 
@@ -470,7 +473,7 @@
       $('#additional_services_group').addClass('hidden');
       $('#boarding_start_group').addClass('hidden');
       $('#boarding_end_group').addClass('hidden');
-      $('#time_slot_group').removeClass('hidden');
+      $('#time_slot_group').addClass('hidden');
       $('#staff_group').removeClass('hidden');
 
       if (!serviceId) {
@@ -484,6 +487,8 @@
         $('#additional_services_group').removeClass('hidden');
         $('#boarding_start_group').removeClass('hidden');
         $('#boarding_end_group').removeClass('hidden');
+      } else {
+        $('#time_slot_group').removeClass('hidden');
       }
 
       updateBoardingLocationField();
@@ -523,11 +528,14 @@
         width: '100%',
         closeOnSelect: false
       }).on('change', function() {
-        handleAdditionalServiceTimeSlotState();
+        syncAdditionalServiceTimeSlotVisibility();
+        refreshAdditionalServiceTimeSlotsIfNeeded();
       });
 
       if (currentValues.length > 0) {
         $('#additional_services').val(currentValues).trigger('change');
+      } else {
+        syncAdditionalServiceTimeSlotVisibility();
       }
     }
 
@@ -573,37 +581,56 @@
       refreshAvailableKennels();
     }
 
-    function handleAdditionalServiceTimeSlotState() {
+    function syncAdditionalServiceTimeSlotVisibility() {
       const selectedServiceId = $('#service').val();
       const selectedService = window.servicesData.find(function(s) {
         return String(s.id) === String(selectedServiceId);
       });
       const isBoarding = selectedService && selectedService.category_name && selectedService.category_name.toLowerCase().includes('boarding');
 
-      $('#time_slot_group').removeClass('hidden');
-
       if (!isBoarding) {
+        $('#time_slot_group').removeClass('hidden');
         $('#time_slot_group label').text('Start Time - End Time*');
-        $('#time_slot_data').val('');
         return;
       }
 
       const additionalServiceId = getSelectedAdditionalServiceForTimeSlot();
+
+      if (!additionalServiceId) {
+        $('#time_slot_group').addClass('hidden');
+        $('#time_slot').empty().append('<option value="" hidden selected>Choose a time slot</option>');
+        $('#time_slot').val('').trigger('change');
+        $('#time_slot_data').val('');
+        return;
+      }
+
+      $('#time_slot_group').removeClass('hidden');
+    }
+
+    function refreshAdditionalServiceTimeSlotsIfNeeded() {
+      const selectedServiceId = $('#service').val();
+      const selectedService = window.servicesData.find(function(s) {
+        return String(s.id) === String(selectedServiceId);
+      });
+      const isBoarding = selectedService && selectedService.category_name && selectedService.category_name.toLowerCase().includes('boarding');
+
+      if (!isBoarding) {
+        return;
+      }
+
+      const additionalServiceId = getSelectedAdditionalServiceForTimeSlot();
+      if (!additionalServiceId) {
+        return;
+      }
+
       const petId = getPrimaryPetId();
       const boardingEndDateTime = $('#boarding_end_datetime').val();
       const pickupDate = boardingEndDateTime ? boardingEndDateTime.split('T')[0] : '';
       const pickupTime = boardingEndDateTime ? boardingEndDateTime.split('T')[1] : '';
 
-      $('#time_slot_group').removeClass('hidden');
-
-      if (!additionalServiceId) {
-        // $('#time_slot').empty().append('<option value="" hidden selected>Select an additional service first</option>');
-        $('#time_slot_data').val('');
-        return;
-      }
-
       if (!petId || !pickupDate || !pickupTime) {
         $('#time_slot').empty().append('<option value="" hidden selected>Select pet and pick up time first</option>');
+        $('#time_slot').val('').trigger('change');
         $('#time_slot_data').val('');
         return;
       }
@@ -769,7 +796,9 @@
       if (isBoarding) {
         $('#date').val('');
         if (!scheduledAdditionalServiceId) {
+          $('#time_slot_group').addClass('hidden');
           $('#time_slot').val('').trigger('change');
+          $('#time_slot_data').val('');
         }
         if (!boardingStart || !boardingEnd) {
           $('#alert_message').text('Please select both drop off and pick up date/time for boarding service.');

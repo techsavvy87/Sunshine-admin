@@ -839,12 +839,6 @@ class AppointmentController extends Controller
 
         $requiresBoardingAdditionalService = isBoardingService($service);
 
-        if ($requiresBoardingAdditionalService && empty($selectedAdditionalServiceIds)) {
-            return back()->withErrors([
-                'additional_services' => 'Please select at least one additional service for the boarding appointment.'
-            ])->withInput();
-        }
-
         $requiresAdditionalServiceTimeSlot = $requiresBoardingAdditionalService && $selectedAdditionalServices->isNotEmpty();
 
         if ($requiresAdditionalServiceTimeSlot && !$request->filled('time_slot')) {
@@ -1176,12 +1170,6 @@ class AppointmentController extends Controller
             : collect([]);
 
         $requiresBoardingAdditionalService = isBoardingService($service);
-
-        if ($requiresBoardingAdditionalService && empty($selectedAdditionalServiceIds)) {
-            return back()->withErrors([
-                'additional_services' => 'Please select at least one additional service for the boarding appointment.'
-            ])->withInput();
-        }
 
         $requiresAdditionalServiceTimeSlot = $requiresBoardingAdditionalService && $selectedAdditionalServices->isNotEmpty();
 
@@ -1604,13 +1592,7 @@ class AppointmentController extends Controller
 
     public function viewCalendar(Request $request)
     {
-        $serviceId = $request->get('service');
-
         $appointmentsQuery = Appointment::with(['pet', 'customer.profile', 'service']);
-
-        if ($serviceId) {
-            $appointmentsQuery->where('service_id', $serviceId);
-        }
 
         $appointments = $appointmentsQuery->get();
 
@@ -1676,14 +1658,8 @@ class AppointmentController extends Controller
             }
         });
 
-        $services = Service::where('status', 'active')
-            ->where('level', 'primary')
-            ->get();
-
         return view('appointments.calendar', [
             'appointments' => $expandedAppointments,
-            'services' => $services,
-            'serviceId' => $serviceId,
         ]);
     }
 
@@ -2317,7 +2293,10 @@ class AppointmentController extends Controller
 
         $estimatedPrice = floatval($appointment->estimated_price ?? 0);
         $discountAmount = floatval($discountInfo['discount_amount'] ?? 0);
-        $totalAmount = max(0, $estimatedPrice - $discountAmount + $totalInventoryAmount);
+        $subtotalAmount = max(0, $estimatedPrice - $discountAmount + $totalInventoryAmount);
+        $stateTaxRate = isBoardingService($appointment->service) ? floatval(config('billing.state_tax_rate', 7)) : 0;
+        $stateTaxAmount = round($subtotalAmount * ($stateTaxRate / 100), 2);
+        $totalAmount = $subtotalAmount + $stateTaxAmount;
 
         $emailData = [
             'invoice_number' => $invoice->invoice_number,
@@ -2335,6 +2314,9 @@ class AppointmentController extends Controller
             'discount_title' => $discountInfo['discount_title'] ?? null,
             'discount_amount' => $discountAmount,
             'total_inventory_amount' => $totalInventoryAmount,
+            'subtotal_amount' => $subtotalAmount,
+            'state_tax_rate' => $stateTaxRate,
+            'state_tax_amount' => $stateTaxAmount,
             'total' => $totalAmount,
             'total_amount' => $totalAmount
         ];

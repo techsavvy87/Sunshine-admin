@@ -229,10 +229,16 @@
         $chauffeurServicePrices = $chauffeurPricingData['service_prices'] ?? [];
         $estimatedPrice = $appointment->estimated_price + array_sum($chauffeurServicePrices);
       }
+
+      $appointmentStateTaxRate = isBoardingService($appointment->service) ? (float) config('billing.state_tax_rate', 7) : 0;
+      $estimatedPriceWithTax = $estimatedPrice + ($estimatedPrice * ($appointmentStateTaxRate / 100));
     @endphp
     <div class="flex items-center gap-2">
       <p class="font-medium">Estimated Price: </p>
-      <p class="text-base-content/70">${{ number_format($estimatedPrice, 2) }}</p>
+      <p class="text-base-content/70">${{ number_format($estimatedPriceWithTax, 2) }}</p>
+      @if (isBoardingService($appointment->service) && $appointmentStateTaxRate > 0)
+      <span class="badge badge-ghost badge-xs">incl. {{ number_format($appointmentStateTaxRate, 2) }}% tax</span>
+      @endif
     </div>
     @endif
     @if (isGroupClassService($appointment->service) && isset($appointment->class_name))
@@ -248,8 +254,15 @@
     </div>
     @endif
   </div>
-  <div class="mt-3 grid grid-cols-1 gap-6 lg:grid-cols-12">
-    <div class="lg:col-span-5 2xl:col-span-5">
+  @php
+    $layoutPets = $appointment->family_pets;
+    if ($layoutPets->isEmpty() && $appointment->pet) {
+      $layoutPets = collect([$appointment->pet]);
+    }
+    $isFamilyPetAppointmentLayout = $layoutPets->count() > 1;
+  @endphp
+  <div class="mt-3 grid grid-cols-1 gap-6 {{ $isFamilyPetAppointmentLayout ? '' : 'lg:grid-cols-12' }}">
+    <div class="{{ $isFamilyPetAppointmentLayout ? '' : 'lg:col-span-5 2xl:col-span-5' }}">
       <div class="card card-border bg-base-100">
         <div class="card-body gap-0">
           <div class="bg-base-200 rounded-box collapse collapse-arrow">
@@ -1211,6 +1224,16 @@
                         <td></td>
                       </tr>
                       <tr>
+                        <td colspan="2" class="font-medium text-end" width="66%">Subtotal:</td>
+                        <td id="invoice_subtotal_amount">$0.00</td>
+                        <td></td>
+                      </tr>
+                      <tr id="invoice_state_tax_row" style="display: none;">
+                        <td colspan="2" class="font-medium text-end" width="66%">State Tax (<span id="invoice_state_tax_rate_label">0</span>%):</td>
+                        <td id="invoice_state_tax_amount">$0.00</td>
+                        <td></td>
+                      </tr>
+                      <tr>
                         <td colspan="2" class="font-medium text-end" width="66%">Total Amount:</td>
                         <td id="grand_total_amount"></td>
                         <td></td>
@@ -1232,7 +1255,7 @@
         </div>
       @endif
     </div>
-    <div class="lg:col-span-7 2xl:col-span-7">
+    <div class="{{ $isFamilyPetAppointmentLayout ? '' : 'lg:col-span-7 2xl:col-span-7' }}">
       <div class="card card-border bg-base-100">
         <div class="card-body gap-0">
           <div class="bg-base-200 rounded-box collapse collapse-arrow">
@@ -1244,10 +1267,12 @@
                 if ($profilePets->isEmpty() && $appointment->pet) {
                   $profilePets = collect([$appointment->pet]);
                 }
+                $isFamilyProfile = $profilePets->count() > 1;
               @endphp
 
+              <div class="{{ $isFamilyProfile ? 'mt-4 grid grid-cols-1 xl:grid-cols-2 gap-4' : '' }}">
               @forelse($profilePets as $pet)
-              <div class="{{ $loop->first ? 'mt-4' : 'mt-4 border-t border-base-300' }}">
+              <div class="{{ $isFamilyProfile ? 'rounded-box border border-base-300 p-4 h-full' : 'mt-4' }} {{ !$isFamilyProfile && !$loop->first ? 'border-t border-base-300' : '' }}">
                 <div class="mt-4 grid grid-cols-1 gap-3 xl:grid-cols-4">
                   <div class="lg:col-span-1">
                     <a href="{{ route('edit-pet', $pet->id) }}" class="block w-fit hover:opacity-80 focus:opacity-80 rounded-box" title="View pet">
@@ -1367,6 +1392,7 @@
                 <p class="text-base-content/60">No pet profile found.</p>
               </div>
               @endforelse
+              </div>
             </div>
           </div>
         </div>
@@ -1421,295 +1447,316 @@
                   </div>
                 </div>
 
-                <!-- Pet Information -->
-                <div>
-                  <p class="font-semibold mb-2 text-base">Pet Information</p>
-                  <div class="space-y-3 ms-2">
+                @php
+                  $flows = ($checkedIn && $checkedIn->flows) ? $checkedIn->flows : [];
+                  $checkinPets = $appointment->family_pets;
+                  if ($checkinPets->isEmpty() && $appointment->pet) {
+                    $checkinPets = collect([$appointment->pet]);
+                  }
+                  $isFamilyCheckin = $checkinPets->count() > 1;
+                  $petSpecificFlows = isset($flows['pet_specific']) && is_array($flows['pet_specific']) ? $flows['pet_specific'] : [];
+                @endphp
+
+                <div class="{{ $isFamilyCheckin ? 'grid grid-cols-1 xl:grid-cols-2 gap-4' : '' }}">
+                @foreach($checkinPets as $pet)
+                  @php
+                    $petIdKey = (string) $pet->id;
+                    $petFlow = $petSpecificFlows[$petIdKey] ?? ($petSpecificFlows[$pet->id] ?? []);
+                    $petFlow = is_array($petFlow) ? $petFlow : [];
+                    $fallbackPetFlow = $flows;
+                    $effectivePetFlow = array_merge($fallbackPetFlow, $petFlow);
+
+                    $petOtherItemsDescription = $effectivePetFlow['other_items_description'] ?? '';
+
+                    $dryFoodRows = [];
+                    if (isset($effectivePetFlow['dry_food_list']) && is_array($effectivePetFlow['dry_food_list']) && count($effectivePetFlow['dry_food_list']) > 0) {
+                      $dryFoodRows = $effectivePetFlow['dry_food_list'];
+                    } else {
+                      $dryFoodRows[] = [
+                        'brand' => $effectivePetFlow['dry_food']['brand'] ?? '',
+                        'amount' => $effectivePetFlow['dry_food']['amount'] ?? '',
+                        'dispense_am' => !empty($effectivePetFlow['dry_food']['dispense_am']) && ($effectivePetFlow['dry_food']['dispense_am'] === true || $effectivePetFlow['dry_food']['dispense_am'] === 'true'),
+                        'dispense_pm' => !empty($effectivePetFlow['dry_food']['dispense_pm']) && ($effectivePetFlow['dry_food']['dispense_pm'] === true || $effectivePetFlow['dry_food']['dispense_pm'] === 'true'),
+                        'dispense_lunch' => !empty($effectivePetFlow['dry_food']['dispense_lunch']) && ($effectivePetFlow['dry_food']['dispense_lunch'] === true || $effectivePetFlow['dry_food']['dispense_lunch'] === 'true'),
+                      ];
+                    }
+
+                    $wetFoodRows = [];
+                    if (isset($effectivePetFlow['wet_food_list']) && is_array($effectivePetFlow['wet_food_list']) && count($effectivePetFlow['wet_food_list']) > 0) {
+                      $wetFoodRows = $effectivePetFlow['wet_food_list'];
+                    } else {
+                      $wetFoodRows[] = [
+                        'brand' => $effectivePetFlow['wet_food']['brand'] ?? '',
+                        'amount' => $effectivePetFlow['wet_food']['amount'] ?? '',
+                        'dispense_am' => !empty($effectivePetFlow['wet_food']['dispense_am']) && ($effectivePetFlow['wet_food']['dispense_am'] === true || $effectivePetFlow['wet_food']['dispense_am'] === 'true'),
+                        'dispense_pm' => !empty($effectivePetFlow['wet_food']['dispense_pm']) && ($effectivePetFlow['wet_food']['dispense_pm'] === true || $effectivePetFlow['wet_food']['dispense_pm'] === 'true'),
+                        'dispense_lunch' => !empty($effectivePetFlow['wet_food']['dispense_lunch']) && ($effectivePetFlow['wet_food']['dispense_lunch'] === true || $effectivePetFlow['wet_food']['dispense_lunch'] === 'true'),
+                      ];
+                    }
+
+                    $medicationRows = [];
+                    if (isset($effectivePetFlow['meds_list']) && is_array($effectivePetFlow['meds_list']) && count($effectivePetFlow['meds_list']) > 0) {
+                      $medicationRows = $effectivePetFlow['meds_list'];
+                    } elseif (isset($effectivePetFlow['meds']) && is_array($effectivePetFlow['meds'])) {
+                      $medicationRows[] = [
+                        'name' => $effectivePetFlow['meds']['name'] ?? '',
+                        'amount' => $effectivePetFlow['meds']['amount'] ?? '',
+                        'dispense_am' => !empty($effectivePetFlow['meds']['dispense_am']) && ($effectivePetFlow['meds']['dispense_am'] === true || $effectivePetFlow['meds']['dispense_am'] === 'true'),
+                        'dispense_pm' => !empty($effectivePetFlow['meds']['dispense_pm']) && ($effectivePetFlow['meds']['dispense_pm'] === true || $effectivePetFlow['meds']['dispense_pm'] === 'true'),
+                        'dispense_rest' => !empty($effectivePetFlow['meds']['dispense_rest']) && ($effectivePetFlow['meds']['dispense_rest'] === true || $effectivePetFlow['meds']['dispense_rest'] === 'true'),
+                        'dispense_before_bed' => false,
+                        'dispense_custom_time' => false,
+                        'meal_condition' => null,
+                        'custom_time' => '',
+                      ];
+                    }
+
+                    if (count($medicationRows) === 0) {
+                      $medicationRows[] = [
+                        'name' => '',
+                        'amount' => '',
+                        'dispense_am' => false,
+                        'dispense_pm' => false,
+                        'dispense_rest' => false,
+                        'dispense_before_bed' => false,
+                        'dispense_custom_time' => false,
+                        'meal_condition' => null,
+                        'custom_time' => '',
+                      ];
+                    }
+                  @endphp
+
+                  <div class="boarding-pet-section {{ $isFamilyCheckin ? 'rounded-box border border-base-300 bg-base-100 p-4 h-full' : '' }}" data-pet-id="{{ $pet->id }}" data-pet-name="{{ $pet->name }}">
+                    @if($isFamilyCheckin)
+                      <div class="mb-4 flex items-center gap-3 border-b border-base-300 pb-3">
+                        <img
+                          src="{{ !empty($pet->pet_img) ? asset('storage/pets/' . $pet->pet_img) : asset('images/no_image.jpg') }}"
+                          alt="{{ $pet->name }}"
+                          class="mask mask-squircle bg-base-200 shrink-0"
+                          style="width: 48px; height: 48px; object-fit: cover;"
+                        />
+                        <div>
+                          <p class="font-semibold text-base">{{ $pet->name }}</p>
+                          <p class="text-xs text-base-content/70">Family Pet #{{ $loop->iteration }}</p>
+                        </div>
+                      </div>
+                    @endif
+
                     <div>
-                      <p class="font-medium mb-2">Items:</p>
-                      <div class="mt-2">
-                        <textarea id="boarding_other_items_description" class="textarea textarea-bordered w-full" rows="2"
-                          placeholder="Please describe items brought for boarding (e.g., Leash, Collar, toys, bedding, etc)">{{ $checkedIn && $checkedIn->flows && isset($checkedIn->flows['other_items_description']) ? $checkedIn->flows['other_items_description'] : '' }}</textarea>
+                      <p class="font-semibold mb-2 text-base">Pet Information</p>
+                      <div class="space-y-3 ms-2">
+                        <div>
+                          <p class="font-medium mb-2">Items:</p>
+                          <div class="mt-2">
+                            <textarea class="textarea textarea-bordered w-full boarding-other-items-description" rows="2" data-pet-id="{{ $pet->id }}"
+                              placeholder="Please describe items brought for boarding (e.g., Leash, Collar, toys, bedding, etc)">{{ $petOtherItemsDescription }}</textarea>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="mt-4">
+                      <p class="font-semibold mb-2 text-base">Feeding and Medication Information</p>
+                      <div class="space-y-4 ms-2">
+                        <div class="border-b border-base-300 pb-4">
+                          <div class="flex items-center justify-between mb-2">
+                            <p class="font-bold">Dry Food</p>
+                            <button type="button" class="btn btn-primary btn-sm add-boarding-dry-food" data-pet-id="{{ $pet->id }}">
+                              <span class="iconify lucide--plus size-4"></span>
+                              Add Dry
+                            </button>
+                          </div>
+                          <div class="space-y-3 ms-2 boarding-dry-food-container" id="boarding_dry_food_container_{{ $pet->id }}">
+                            @foreach($dryFoodRows as $index => $dryFoodRow)
+                              @php
+                                $rowDryAm = !empty($dryFoodRow['dispense_am']) && ($dryFoodRow['dispense_am'] === true || $dryFoodRow['dispense_am'] === 'true');
+                                $rowDryPm = !empty($dryFoodRow['dispense_pm']) && ($dryFoodRow['dispense_pm'] === true || $dryFoodRow['dispense_pm'] === 'true');
+                                $rowDryLunch = !empty($dryFoodRow['dispense_lunch']) && ($dryFoodRow['dispense_lunch'] === true || $dryFoodRow['dispense_lunch'] === 'true');
+                              @endphp
+                              <div class="border border-base-300 rounded-box p-3 space-y-2 boarding-dry-food-row" data-row-index="{{ $index }}">
+                                <div class="flex items-center justify-between">
+                                  <p class="text-sm font-medium">Dry Food #{{ $index + 1 }}</p>
+                                  <button type="button" class="btn btn-ghost btn-sm btn-circle remove-boarding-dry-food" title="Remove dry food">
+                                    <span class="iconify lucide--x size-4 text-error"></span>
+                                  </button>
+                                </div>
+                                <div>
+                                  <p class="text-sm mb-1">Brand:</p>
+                                  <input type="text" class="input input-bordered w-full input-sm boarding-dry-food-brand" placeholder="Enter dry food brand" value="{{ $dryFoodRow['brand'] ?? '' }}" />
+                                </div>
+                                <div class="flex items-end gap-4">
+                                  <div class="flex-1">
+                                    <p class="text-sm mb-1">Amount:</p>
+                                    <input type="text" class="input input-bordered w-full input-sm boarding-dry-food-amount" placeholder="e.g., 1 cup, 1/2 cup" value="{{ $dryFoodRow['amount'] ?? '' }}" />
+                                  </div>
+                                  <div class="flex-1 pb-2">
+                                    <p class="text-sm mb-1">Dispense:</p>
+                                    <div class="flex items-center gap-3 flex-wrap">
+                                      <label class="flex items-center gap-2">
+                                        <input type="checkbox" class="checkbox checkbox-xs boarding-dry-food-dispense-am" {{ $rowDryAm ? 'checked' : '' }} />
+                                        <span class="text-sm">AM</span>
+                                      </label>
+                                      <label class="flex items-center gap-2">
+                                        <input type="checkbox" class="checkbox checkbox-xs boarding-dry-food-dispense-pm" {{ $rowDryPm ? 'checked' : '' }} />
+                                        <span class="text-sm">PM</span>
+                                      </label>
+                                      <label class="flex items-center gap-2">
+                                        <input type="checkbox" class="checkbox checkbox-xs boarding-dry-food-dispense-lunch" {{ $rowDryLunch ? 'checked' : '' }} />
+                                        <span class="text-sm">Lunch</span>
+                                      </label>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            @endforeach
+                          </div>
+                        </div>
+
+                        <div class="border-b border-base-300 pb-4">
+                          <div class="flex items-center justify-between mb-2">
+                            <p class="font-bold">Wet Food</p>
+                            <button type="button" class="btn btn-primary btn-sm add-boarding-wet-food" data-pet-id="{{ $pet->id }}">
+                              <span class="iconify lucide--plus size-4"></span>
+                              Add Wet
+                            </button>
+                          </div>
+                          <div class="space-y-3 ms-2 boarding-wet-food-container" id="boarding_wet_food_container_{{ $pet->id }}">
+                            @foreach($wetFoodRows as $index => $wetFoodRow)
+                              @php
+                                $rowWetAm = !empty($wetFoodRow['dispense_am']) && ($wetFoodRow['dispense_am'] === true || $wetFoodRow['dispense_am'] === 'true');
+                                $rowWetPm = !empty($wetFoodRow['dispense_pm']) && ($wetFoodRow['dispense_pm'] === true || $wetFoodRow['dispense_pm'] === 'true');
+                                $rowWetLunch = !empty($wetFoodRow['dispense_lunch']) && ($wetFoodRow['dispense_lunch'] === true || $wetFoodRow['dispense_lunch'] === 'true');
+                              @endphp
+                              <div class="border border-base-300 rounded-box p-3 space-y-2 boarding-wet-food-row" data-row-index="{{ $index }}">
+                                <div class="flex items-center justify-between">
+                                  <p class="text-sm font-medium">Wet Food #{{ $index + 1 }}</p>
+                                  <button type="button" class="btn btn-ghost btn-sm btn-circle remove-boarding-wet-food" title="Remove wet food">
+                                    <span class="iconify lucide--x size-4 text-error"></span>
+                                  </button>
+                                </div>
+                                <div>
+                                  <p class="text-sm mb-1">Brand:</p>
+                                  <input type="text" class="input input-bordered w-full input-sm boarding-wet-food-brand" placeholder="Enter wet food brand" value="{{ $wetFoodRow['brand'] ?? '' }}" />
+                                </div>
+                                <div class="flex items-end gap-4">
+                                  <div class="flex-1">
+                                    <p class="text-sm mb-1">Amount:</p>
+                                    <input type="text" class="input input-bordered w-full input-sm boarding-wet-food-amount" placeholder="e.g., 2 Tbsp, 1 container" value="{{ $wetFoodRow['amount'] ?? '' }}" />
+                                  </div>
+                                  <div class="flex-1 pb-2">
+                                    <p class="text-sm mb-1">Dispense:</p>
+                                    <div class="flex items-center gap-3 flex-wrap">
+                                      <label class="flex items-center gap-2">
+                                        <input type="checkbox" class="checkbox checkbox-xs boarding-wet-food-dispense-am" {{ $rowWetAm ? 'checked' : '' }} />
+                                        <span class="text-sm">AM</span>
+                                      </label>
+                                      <label class="flex items-center gap-2">
+                                        <input type="checkbox" class="checkbox checkbox-xs boarding-wet-food-dispense-pm" {{ $rowWetPm ? 'checked' : '' }} />
+                                        <span class="text-sm">PM</span>
+                                      </label>
+                                      <label class="flex items-center gap-2">
+                                        <input type="checkbox" class="checkbox checkbox-xs boarding-wet-food-dispense-lunch" {{ $rowWetLunch ? 'checked' : '' }} />
+                                        <span class="text-sm">Lunch</span>
+                                      </label>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            @endforeach
+                          </div>
+                        </div>
+
+                        <div>
+                          <div class="flex items-center justify-between mb-2">
+                            <p class="font-bold">Medications</p>
+                            <button type="button" class="btn btn-primary btn-sm add-boarding-medication" data-pet-id="{{ $pet->id }}">
+                              <span class="iconify lucide--plus size-4"></span>
+                              Add Medication
+                            </button>
+                          </div>
+                          <div class="space-y-3 ms-2 boarding-meds-container" id="boarding_meds_container_{{ $pet->id }}">
+                            @foreach($medicationRows as $index => $medicationRow)
+                              @php
+                                $rowMealCondition = $medicationRow['meal_condition'] ?? ($medicationRow['condition'] ?? '');
+                                if ($rowMealCondition === 'after_meals') {
+                                  $rowMealCondition = 'after_meal';
+                                }
+                                $rowDispenseAm = !empty($medicationRow['dispense_am']) && ($medicationRow['dispense_am'] === true || $medicationRow['dispense_am'] === 'true');
+                                $rowDispensePm = !empty($medicationRow['dispense_pm']) && ($medicationRow['dispense_pm'] === true || $medicationRow['dispense_pm'] === 'true');
+                                $rowDispenseRest = !empty($medicationRow['dispense_rest']) && ($medicationRow['dispense_rest'] === true || $medicationRow['dispense_rest'] === 'true');
+                                $rowDispenseBeforeBed = !empty($medicationRow['dispense_before_bed']) && ($medicationRow['dispense_before_bed'] === true || $medicationRow['dispense_before_bed'] === 'true');
+                                $rowDispenseCustomTime = !empty($medicationRow['dispense_custom_time']) && ($medicationRow['dispense_custom_time'] === true || $medicationRow['dispense_custom_time'] === 'true');
+                                if (($medicationRow['condition'] ?? '') === 'custom_time') {
+                                  $rowDispenseCustomTime = true;
+                                }
+                                if (($medicationRow['condition'] ?? '') === 'before_sleep') {
+                                  $rowDispenseBeforeBed = true;
+                                }
+                                $rowCustomTime = $medicationRow['custom_time'] ?? '';
+                              @endphp
+                              <div class="border border-base-300 rounded-box p-3 space-y-2 boarding-med-row" data-row-index="{{ $index }}">
+                                <div class="flex items-center justify-between">
+                                  <p class="text-sm font-medium">Medication #{{ $index + 1 }}</p>
+                                  <button type="button" class="btn btn-ghost btn-sm btn-circle remove-boarding-medication" title="Remove medication">
+                                    <span class="iconify lucide--x size-4 text-error"></span>
+                                  </button>
+                                </div>
+                                <div>
+                                  <p class="text-sm mb-1">Medication Name:</p>
+                                  <input type="text" class="input input-bordered w-full input-sm boarding-med-name" placeholder="Enter medication name" value="{{ $medicationRow['name'] ?? '' }}" />
+                                </div>
+                                <div>
+                                  <p class="text-sm mb-1">Dosage/Instruction:</p>
+                                  <input type="text" class="input input-bordered w-full input-sm boarding-med-amount" placeholder="e.g., 1 pill, 2 drops left ear" value="{{ $medicationRow['amount'] ?? '' }}" />
+                                </div>
+                                <div>
+                                  <p class="text-sm mb-1">Dispense:</p>
+                                  <div class="flex items-center gap-3 flex-wrap">
+                                    <label class="flex items-center gap-2">
+                                      <input type="checkbox" class="checkbox checkbox-xs boarding-med-dispense-am" {{ $rowDispenseAm ? 'checked' : '' }} />
+                                      <span class="text-sm">AM</span>
+                                    </label>
+                                    <label class="flex items-center gap-2">
+                                      <input type="checkbox" class="checkbox checkbox-xs boarding-med-dispense-pm" {{ $rowDispensePm ? 'checked' : '' }} />
+                                      <span class="text-sm">PM</span>
+                                    </label>
+                                    <label class="flex items-center gap-2">
+                                      <input type="checkbox" class="checkbox checkbox-xs boarding-med-dispense-rest" {{ $rowDispenseRest ? 'checked' : '' }} />
+                                      <span class="text-sm">Rest</span>
+                                    </label>
+                                    <label class="flex items-center gap-2">
+                                      <input type="checkbox" class="checkbox checkbox-xs boarding-med-dispense-before-bed" {{ $rowDispenseBeforeBed ? 'checked' : '' }} />
+                                      <span class="text-sm">Before Bed</span>
+                                    </label>
+                                    <label class="flex items-center gap-2">
+                                      <input type="checkbox" class="checkbox checkbox-xs boarding-med-dispense-custom-time" {{ $rowDispenseCustomTime ? 'checked' : '' }} />
+                                      <span class="text-sm">Custom Time</span>
+                                    </label>
+                                  </div>
+                                </div>
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                  <div>
+                                    <p class="text-sm mb-1">Meal Condition:</p>
+                                    <select class="select select-bordered w-full select-sm boarding-med-meal-condition">
+                                      <option value="">Select option</option>
+                                      <option value="after_meal" {{ $rowMealCondition === 'after_meal' ? 'selected' : '' }}>After Meal</option>
+                                      <option value="before_meal" {{ $rowMealCondition === 'before_meal' ? 'selected' : '' }}>Before Meal</option>
+                                      <option value="empty_stomach" {{ $rowMealCondition === 'empty_stomach' ? 'selected' : '' }}>Empty Stomach</option>
+                                    </select>
+                                  </div>
+                                  <div class="boarding-med-custom-time-wrap {{ $rowDispenseCustomTime ? '' : 'hidden' }}">
+                                    <p class="text-sm mb-1">Custom Time:</p>
+                                    <input type="time" class="input input-bordered w-full input-sm boarding-med-custom-time" value="{{ $rowCustomTime }}" />
+                                  </div>
+                                </div>
+                              </div>
+                            @endforeach
+                          </div>
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
-
-                <div>
-                  <p class="font-semibold mb-2 text-base">Feeding and Medication Information</p>
-                  @php
-                    $flows = ($checkedIn && $checkedIn->flows) ? $checkedIn->flows : [];
-                  @endphp
-                  <div class="space-y-4 ms-2">
-                    <div class="border-b border-base-300 pb-4">
-                      <div class="flex items-center justify-between mb-2">
-                        <p class="font-bold">Dry Food</p>
-                        <button type="button" class="btn btn-primary btn-sm" id="add_boarding_dry_food">
-                          <span class="iconify lucide--plus size-4"></span>
-                          Add Dry
-                        </button>
-                      </div>
-                      @php
-                        $dryFoodRows = [];
-                        if (isset($flows['dry_food_list']) && is_array($flows['dry_food_list']) && count($flows['dry_food_list']) > 0) {
-                          $dryFoodRows = $flows['dry_food_list'];
-                        } else {
-                          $dryFoodRows[] = [
-                            'brand' => $flows['dry_food']['brand'] ?? '',
-                            'amount' => $flows['dry_food']['amount'] ?? '',
-                            'dispense_am' => !empty($flows['dry_food']['dispense_am']) && ($flows['dry_food']['dispense_am'] === true || $flows['dry_food']['dispense_am'] === 'true'),
-                            'dispense_pm' => !empty($flows['dry_food']['dispense_pm']) && ($flows['dry_food']['dispense_pm'] === true || $flows['dry_food']['dispense_pm'] === 'true'),
-                            'dispense_lunch' => !empty($flows['dry_food']['dispense_lunch']) && ($flows['dry_food']['dispense_lunch'] === true || $flows['dry_food']['dispense_lunch'] === 'true'),
-                          ];
-                        }
-                      @endphp
-                      <div class="space-y-3 ms-2" id="boarding_dry_food_container">
-                        @foreach($dryFoodRows as $index => $dryFoodRow)
-                          @php
-                            $rowDryAm = !empty($dryFoodRow['dispense_am']) && ($dryFoodRow['dispense_am'] === true || $dryFoodRow['dispense_am'] === 'true');
-                            $rowDryPm = !empty($dryFoodRow['dispense_pm']) && ($dryFoodRow['dispense_pm'] === true || $dryFoodRow['dispense_pm'] === 'true');
-                            $rowDryLunch = !empty($dryFoodRow['dispense_lunch']) && ($dryFoodRow['dispense_lunch'] === true || $dryFoodRow['dispense_lunch'] === 'true');
-                          @endphp
-                          <div class="border border-base-300 rounded-box p-3 space-y-2 boarding-dry-food-row" data-row-index="{{ $index }}">
-                            <div class="flex items-center justify-between">
-                              <p class="text-sm font-medium">Dry Food #{{ $index + 1 }}</p>
-                              <button type="button" class="btn btn-ghost btn-sm btn-circle remove-boarding-dry-food" title="Remove dry food">
-                                <span class="iconify lucide--x size-4 text-error"></span>
-                              </button>
-                            </div>
-                            <div>
-                              <p class="text-sm mb-1">Brand:</p>
-                              <input type="text" class="input input-bordered w-full input-sm boarding-dry-food-brand"
-                                placeholder="Enter dry food brand"
-                                value="{{ $dryFoodRow['brand'] ?? '' }}" />
-                            </div>
-                            <div class="flex items-end gap-4">
-                              <div class="flex-1">
-                                <p class="text-sm mb-1">Amount:</p>
-                                <input type="text" class="input input-bordered w-full input-sm boarding-dry-food-amount"
-                                  placeholder="e.g., 1 cup, 1/2 cup"
-                                  value="{{ $dryFoodRow['amount'] ?? '' }}" />
-                              </div>
-                              <div class="flex-1 pb-2">
-                                <p class="text-sm mb-1">Dispense:</p>
-                                <div class="flex items-center gap-3 flex-wrap">
-                                  <label class="flex items-center gap-2">
-                                    <input type="checkbox" class="checkbox checkbox-xs boarding-dry-food-dispense-am" {{ $rowDryAm ? 'checked' : '' }} />
-                                    <span class="text-sm">AM</span>
-                                  </label>
-                                  <label class="flex items-center gap-2">
-                                    <input type="checkbox" class="checkbox checkbox-xs boarding-dry-food-dispense-pm" {{ $rowDryPm ? 'checked' : '' }} />
-                                    <span class="text-sm">PM</span>
-                                  </label>
-                                  <label class="flex items-center gap-2">
-                                    <input type="checkbox" class="checkbox checkbox-xs boarding-dry-food-dispense-lunch" {{ $rowDryLunch ? 'checked' : '' }} />
-                                    <span class="text-sm">Lunch</span>
-                                  </label>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        @endforeach
-                      </div>
-                    </div>
-
-                    <div class="border-b border-base-300 pb-4">
-                      <div class="flex items-center justify-between mb-2">
-                        <p class="font-bold">Wet Food</p>
-                        <button type="button" class="btn btn-primary btn-sm" id="add_boarding_wet_food">
-                          <span class="iconify lucide--plus size-4"></span>
-                          Add Wet
-                        </button>
-                      </div>
-                      @php
-                        $wetFoodRows = [];
-                        if (isset($flows['wet_food_list']) && is_array($flows['wet_food_list']) && count($flows['wet_food_list']) > 0) {
-                          $wetFoodRows = $flows['wet_food_list'];
-                        } else {
-                          $wetFoodRows[] = [
-                            'brand' => $flows['wet_food']['brand'] ?? '',
-                            'amount' => $flows['wet_food']['amount'] ?? '',
-                            'dispense_am' => !empty($flows['wet_food']['dispense_am']) && ($flows['wet_food']['dispense_am'] === true || $flows['wet_food']['dispense_am'] === 'true'),
-                            'dispense_pm' => !empty($flows['wet_food']['dispense_pm']) && ($flows['wet_food']['dispense_pm'] === true || $flows['wet_food']['dispense_pm'] === 'true'),
-                            'dispense_lunch' => !empty($flows['wet_food']['dispense_lunch']) && ($flows['wet_food']['dispense_lunch'] === true || $flows['wet_food']['dispense_lunch'] === 'true'),
-                          ];
-                        }
-                      @endphp
-                      <div class="space-y-3 ms-2" id="boarding_wet_food_container">
-                        @foreach($wetFoodRows as $index => $wetFoodRow)
-                          @php
-                            $rowWetAm = !empty($wetFoodRow['dispense_am']) && ($wetFoodRow['dispense_am'] === true || $wetFoodRow['dispense_am'] === 'true');
-                            $rowWetPm = !empty($wetFoodRow['dispense_pm']) && ($wetFoodRow['dispense_pm'] === true || $wetFoodRow['dispense_pm'] === 'true');
-                            $rowWetLunch = !empty($wetFoodRow['dispense_lunch']) && ($wetFoodRow['dispense_lunch'] === true || $wetFoodRow['dispense_lunch'] === 'true');
-                          @endphp
-                          <div class="border border-base-300 rounded-box p-3 space-y-2 boarding-wet-food-row" data-row-index="{{ $index }}">
-                            <div class="flex items-center justify-between">
-                              <p class="text-sm font-medium">Wet Food #{{ $index + 1 }}</p>
-                              <button type="button" class="btn btn-ghost btn-sm btn-circle remove-boarding-wet-food" title="Remove wet food">
-                                <span class="iconify lucide--x size-4 text-error"></span>
-                              </button>
-                            </div>
-                            <div>
-                              <p class="text-sm mb-1">Brand:</p>
-                              <input type="text" class="input input-bordered w-full input-sm boarding-wet-food-brand"
-                                placeholder="Enter wet food brand"
-                                value="{{ $wetFoodRow['brand'] ?? '' }}" />
-                            </div>
-                            <div class="flex items-end gap-4">
-                              <div class="flex-1">
-                                <p class="text-sm mb-1">Amount:</p>
-                                <input type="text" class="input input-bordered w-full input-sm boarding-wet-food-amount"
-                                  placeholder="e.g., 2 Tbsp, 1 container"
-                                  value="{{ $wetFoodRow['amount'] ?? '' }}" />
-                              </div>
-                              <div class="flex-1 pb-2">
-                                <p class="text-sm mb-1">Dispense:</p>
-                                <div class="flex items-center gap-3 flex-wrap">
-                                  <label class="flex items-center gap-2">
-                                    <input type="checkbox" class="checkbox checkbox-xs boarding-wet-food-dispense-am" {{ $rowWetAm ? 'checked' : '' }} />
-                                    <span class="text-sm">AM</span>
-                                  </label>
-                                  <label class="flex items-center gap-2">
-                                    <input type="checkbox" class="checkbox checkbox-xs boarding-wet-food-dispense-pm" {{ $rowWetPm ? 'checked' : '' }} />
-                                    <span class="text-sm">PM</span>
-                                  </label>
-                                  <label class="flex items-center gap-2">
-                                    <input type="checkbox" class="checkbox checkbox-xs boarding-wet-food-dispense-lunch" {{ $rowWetLunch ? 'checked' : '' }} />
-                                    <span class="text-sm">Lunch</span>
-                                  </label>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        @endforeach
-                      </div>
-                    </div>
-
-                      <div>
-                        <div class="flex items-center justify-between mb-2">
-                          <p class="font-medium font-bold">Medications</p>
-                          <button type="button" class="btn btn-primary btn-sm" id="add_boarding_medication">
-                            <span class="iconify lucide--plus size-4"></span>
-                            Add Medication
-                          </button>
-                        </div>
-                        @php
-                          $medicationRows = [];
-
-                          if (isset($flows['meds_list']) && is_array($flows['meds_list']) && count($flows['meds_list']) > 0) {
-                            $medicationRows = $flows['meds_list'];
-                          } elseif (isset($flows['meds']) && is_array($flows['meds'])) {
-                            $medicationRows[] = [
-                              'name' => $flows['meds']['name'] ?? '',
-                              'amount' => $flows['meds']['amount'] ?? '',
-                              'dispense_am' => !empty($flows['meds']['dispense_am']) && ($flows['meds']['dispense_am'] === true || $flows['meds']['dispense_am'] === 'true'),
-                              'dispense_pm' => !empty($flows['meds']['dispense_pm']) && ($flows['meds']['dispense_pm'] === true || $flows['meds']['dispense_pm'] === 'true'),
-                              'dispense_rest' => !empty($flows['meds']['dispense_rest']) && ($flows['meds']['dispense_rest'] === true || $flows['meds']['dispense_rest'] === 'true'),
-                              'dispense_before_bed' => false,
-                              'dispense_custom_time' => false,
-                              'meal_condition' => null,
-                              'custom_time' => '',
-                            ];
-                          }
-
-                          if (count($medicationRows) === 0) {
-                            $medicationRows[] = [
-                              'name' => '',
-                              'amount' => '',
-                              'dispense_am' => false,
-                              'dispense_pm' => false,
-                              'dispense_rest' => false,
-                              'dispense_before_bed' => false,
-                              'dispense_custom_time' => false,
-                              'meal_condition' => null,
-                              'custom_time' => '',
-                            ];
-                          }
-                        @endphp
-                        <div class="space-y-3 ms-2" id="boarding_meds_container">
-                          @foreach($medicationRows as $index => $medicationRow)
-                            @php
-                              $rowMealCondition = $medicationRow['meal_condition'] ?? ($medicationRow['condition'] ?? '');
-                              if ($rowMealCondition === 'after_meals') {
-                                $rowMealCondition = 'after_meal';
-                              }
-                              $rowDispenseAm = !empty($medicationRow['dispense_am']) && ($medicationRow['dispense_am'] === true || $medicationRow['dispense_am'] === 'true');
-                              $rowDispensePm = !empty($medicationRow['dispense_pm']) && ($medicationRow['dispense_pm'] === true || $medicationRow['dispense_pm'] === 'true');
-                              $rowDispenseRest = !empty($medicationRow['dispense_rest']) && ($medicationRow['dispense_rest'] === true || $medicationRow['dispense_rest'] === 'true');
-                              $rowDispenseBeforeBed = !empty($medicationRow['dispense_before_bed']) && ($medicationRow['dispense_before_bed'] === true || $medicationRow['dispense_before_bed'] === 'true');
-                              $rowDispenseCustomTime = !empty($medicationRow['dispense_custom_time']) && ($medicationRow['dispense_custom_time'] === true || $medicationRow['dispense_custom_time'] === 'true');
-                              if (($medicationRow['condition'] ?? '') === 'custom_time') {
-                                $rowDispenseCustomTime = true;
-                              }
-                              if (($medicationRow['condition'] ?? '') === 'before_sleep') {
-                                $rowDispenseBeforeBed = true;
-                              }
-                              $rowCustomTime = $medicationRow['custom_time'] ?? '';
-                            @endphp
-                            <div class="border border-base-300 rounded-box p-3 space-y-2 boarding-med-row" data-row-index="{{ $index }}">
-                              <div class="flex items-center justify-between">
-                                <p class="text-sm font-medium">Medication #{{ $index + 1 }}</p>
-                                <button type="button" class="btn btn-ghost btn-sm btn-circle remove-boarding-medication" title="Remove medication">
-                                  <span class="iconify lucide--x size-4 text-error"></span>
-                                </button>
-                              </div>
-                              <div>
-                                <p class="text-sm mb-1">Medication Name:</p>
-                                <input type="text" class="input input-bordered w-full input-sm boarding-med-name"
-                                  placeholder="Enter medication name"
-                                  value="{{ $medicationRow['name'] ?? '' }}" />
-                              </div>
-                              <div>
-                                <p class="text-sm mb-1">Dosage/Instruction:</p>
-                                <input type="text" class="input input-bordered w-full input-sm boarding-med-amount"
-                                  placeholder="e.g., 1 pill, 2 drops left ear"
-                                  value="{{ $medicationRow['amount'] ?? '' }}" />
-                              </div>
-                              <div>
-                                <p class="text-sm mb-1">Dispense:</p>
-                                <div class="flex items-center gap-3 flex-wrap">
-                                  <label class="flex items-center gap-2">
-                                    <input type="checkbox" class="checkbox checkbox-xs boarding-med-dispense-am" {{ $rowDispenseAm ? 'checked' : '' }} />
-                                    <span class="text-sm">AM</span>
-                                  </label>
-                                  <label class="flex items-center gap-2">
-                                    <input type="checkbox" class="checkbox checkbox-xs boarding-med-dispense-pm" {{ $rowDispensePm ? 'checked' : '' }} />
-                                    <span class="text-sm">PM</span>
-                                  </label>
-                                  <label class="flex items-center gap-2">
-                                    <input type="checkbox" class="checkbox checkbox-xs boarding-med-dispense-rest" {{ $rowDispenseRest ? 'checked' : '' }} />
-                                    <span class="text-sm">Rest</span>
-                                  </label>
-                                  <label class="flex items-center gap-2">
-                                    <input type="checkbox" class="checkbox checkbox-xs boarding-med-dispense-before-bed" {{ $rowDispenseBeforeBed ? 'checked' : '' }} />
-                                    <span class="text-sm">Before Bed</span>
-                                  </label>
-                                  <label class="flex items-center gap-2">
-                                    <input type="checkbox" class="checkbox checkbox-xs boarding-med-dispense-custom-time" {{ $rowDispenseCustomTime ? 'checked' : '' }} />
-                                    <span class="text-sm">Custom Time</span>
-                                  </label>
-                                </div>
-                              </div>
-                              <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                <div>
-                                  <p class="text-sm mb-1">Meal Condition:</p>
-                                  <select class="select select-bordered w-full select-sm boarding-med-meal-condition">
-                                    <option value="">Select option</option>
-                                    <option value="after_meal" {{ $rowMealCondition === 'after_meal' ? 'selected' : '' }}>After Meal</option>
-                                    <option value="before_meal" {{ $rowMealCondition === 'before_meal' ? 'selected' : '' }}>Before Meal</option>
-                                    <option value="empty_stomach" {{ $rowMealCondition === 'empty_stomach' ? 'selected' : '' }}>Empty Stomach</option>
-                                  </select>
-                                </div>
-                                <div class="boarding-med-custom-time-wrap {{ $rowDispenseCustomTime ? '' : 'hidden' }}">
-                                  <p class="text-sm mb-1">Custom Time:</p>
-                                  <input type="time" class="input input-bordered w-full input-sm boarding-med-custom-time" value="{{ $rowCustomTime }}" />
-                                </div>
-                              </div>
-                            </div>
-                          @endforeach
-                        </div>
-                      </div>
-                    </div>
+                @endforeach
                 </div>
 
                 <!-- Assignment or location for visit -->
@@ -1781,13 +1828,17 @@
                         </select>
                       </fieldset>
                       <fieldset class="fieldset">
-                        <legend class="fieldset-legend">Estimated Price*</legend>
+                        <legend class="fieldset-legend">Estimated Price{{ isBoardingService($appointment->service) ? ' (incl. tax)' : '' }}*</legend>
                         <label class="input w-full focus:outline-0 input-sm">
                           @php
                             $estimatedPriceValue = $appointment->estimated_price ?? $dbEstimatedPrice ?? '';
+                            $checkinStateTaxRate = isBoardingService($appointment->service) ? (float) config('billing.state_tax_rate', 7) : 0;
+                            $estimatedPriceDisplayValue = $estimatedPriceValue !== ''
+                              ? ((float) $estimatedPriceValue * (1 + ($checkinStateTaxRate / 100)))
+                              : '';
                           @endphp
                           <input class="grow focus:outline-0" id="estimated_price" name="estimated_price" type="text"
-                            value="{{ $estimatedPriceValue ? number_format($estimatedPriceValue, 2, '.', '') : '' }}" placeholder="Enter estimated price"
+                            value="{{ $estimatedPriceDisplayValue !== '' ? number_format($estimatedPriceDisplayValue, 2, '.', '') : '' }}" placeholder="Enter estimated price"
                             oninput="this.value = this.value.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1');" required />
                           <span class="badge badge-ghost badge-sm">USD</span>
                         </label>
@@ -1811,7 +1862,7 @@
                     </div>
                     <div class="alert alert-soft alert-info">
                       <span class="iconify lucide--info size-4"></span>
-                      <span>Estimated price is required before continuing. Staff assignment can be added now or later.</span>
+                      <span>Estimated price{{ isBoardingService($appointment->service) ? ' (tax included)' : '' }} is required before continuing. Staff assignment can be added now or later.</span>
                     </div>
                     <div class="border border-base-300 rounded-box p-4 space-y-4">
                       <p class="font-semibold text-base">Boarding Agreement</p>
@@ -1919,13 +1970,17 @@
                   </select>
                 </fieldset>
                 <fieldset class="fieldset">
-                  <legend class="fieldset-legend">Estimated Price*</legend>
+                  <legend class="fieldset-legend">Estimated Price{{ isBoardingService($appointment->service) ? ' (incl. tax)' : '' }}*</legend>
                   <label class="input w-full focus:outline-0 input-sm">
                     @php
                       $estimatedPriceValue = $appointment->estimated_price ?? $dbEstimatedPrice ?? '';
+                      $checkinStateTaxRate = isBoardingService($appointment->service) ? (float) config('billing.state_tax_rate', 7) : 0;
+                      $estimatedPriceDisplayValue = $estimatedPriceValue !== ''
+                        ? ((float) $estimatedPriceValue * (1 + ($checkinStateTaxRate / 100)))
+                        : '';
                     @endphp
                     <input class="grow focus:outline-0" id="estimated_price" name="estimated_price" type="text"
-                      value="{{ $estimatedPriceValue ? number_format($estimatedPriceValue, 2, '.', '') : '' }}" placeholder="Enter estimated price"
+                      value="{{ $estimatedPriceDisplayValue !== '' ? number_format($estimatedPriceDisplayValue, 2, '.', '') : '' }}" placeholder="Enter estimated price"
                       oninput="this.value = this.value.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1');" required />
                     <span class="badge badge-ghost badge-sm">USD</span>
                   </label>
@@ -1955,7 +2010,7 @@
               </div>
               <div class="alert alert-soft alert-info mt-4">
                 <span class="iconify lucide--info size-4"></span>
-                <span>Estimated price is required before continuing. Staff assignment can be added now or later.</span>
+                <span>Estimated price{{ isBoardingService($appointment->service) ? ' (tax included)' : '' }} is required before continuing. Staff assignment can be added now or later.</span>
               </div>
               <div class="mt-4 grid grid-cols-1 gap-6 xl:grid-cols-2">
                 <fieldset class="fieldset">
@@ -2842,7 +2897,7 @@
 
     // Auto-save boarding check-in data
     @if (isBoardingService($appointment->service))
-    $('#boarding_pickup_datetime, #boarding_trip_location, #boarding_trip_phone, #boarding_alternate_contact_name, #boarding_alternate_contact_phone, #boarding_trip_notes, #boarding_vet_name, #boarding_vet_phone, input[name="boarding_vet_notification"], #boarding_health_status, #boarding_medical_issues, #boarding_flea_tick_treatment, #boarding_pet_notes, #boarding_has_leash, #boarding_has_collar, #boarding_has_other_items, #boarding_other_items_description, input[name="boarding_location_type"], #boarding_location_details').on('change input', function() {
+    $('#boarding_pickup_datetime, #boarding_trip_location, #boarding_trip_phone, #boarding_alternate_contact_name, #boarding_alternate_contact_phone, #boarding_trip_notes, #boarding_vet_name, #boarding_vet_phone, input[name="boarding_vet_notification"], #boarding_health_status, #boarding_medical_issues, #boarding_flea_tick_treatment, #boarding_pet_notes, #boarding_has_leash, #boarding_has_collar, #boarding_has_other_items, .boarding-other-items-description, input[name="boarding_location_type"], #boarding_location_details').on('change input', function() {
       saveBoardingCheckinData();
     });
 
@@ -2879,18 +2934,20 @@
       saveBoardingCheckinData();
     });
 
-    $(document).on('change input', '.boarding-dry-food-row input', function() {
+    $(document).on('change input', '.boarding-pet-section .boarding-dry-food-row input', function() {
       saveBoardingCheckinData();
     });
 
-    $(document).on('click', '#add_boarding_dry_food', function() {
-      addBoardingDryFoodRow();
+    $(document).on('click', '.add-boarding-dry-food', function() {
+      const $section = $(this).closest('.boarding-pet-section');
+      addBoardingDryFoodRow($section);
       saveBoardingCheckinData();
     });
 
     $(document).on('click', '.remove-boarding-dry-food', function() {
       const $row = $(this).closest('.boarding-dry-food-row');
-      const totalRows = $('#boarding_dry_food_container .boarding-dry-food-row').length;
+      const $section = $(this).closest('.boarding-pet-section');
+      const totalRows = $section.find('.boarding-dry-food-container .boarding-dry-food-row').length;
 
       if (totalRows <= 1) {
         $row.find('.boarding-dry-food-brand').val('');
@@ -2900,25 +2957,27 @@
         $row.find('.boarding-dry-food-dispense-lunch').prop('checked', false);
       } else {
         $row.remove();
-        refreshBoardingDryFoodRowLabels();
+        refreshBoardingDryFoodRowLabels($section);
       }
 
-      updateBoardingDryFoodRemoveButtons();
+      updateBoardingDryFoodRemoveButtons($section);
       saveBoardingCheckinData();
     });
 
-    $(document).on('change input', '.boarding-wet-food-row input', function() {
+    $(document).on('change input', '.boarding-pet-section .boarding-wet-food-row input', function() {
       saveBoardingCheckinData();
     });
 
-    $(document).on('click', '#add_boarding_wet_food', function() {
-      addBoardingWetFoodRow();
+    $(document).on('click', '.add-boarding-wet-food', function() {
+      const $section = $(this).closest('.boarding-pet-section');
+      addBoardingWetFoodRow($section);
       saveBoardingCheckinData();
     });
 
     $(document).on('click', '.remove-boarding-wet-food', function() {
       const $row = $(this).closest('.boarding-wet-food-row');
-      const totalRows = $('#boarding_wet_food_container .boarding-wet-food-row').length;
+      const $section = $(this).closest('.boarding-pet-section');
+      const totalRows = $section.find('.boarding-wet-food-container .boarding-wet-food-row').length;
 
       if (totalRows <= 1) {
         $row.find('.boarding-wet-food-brand').val('');
@@ -2928,32 +2987,37 @@
         $row.find('.boarding-wet-food-dispense-lunch').prop('checked', false);
       } else {
         $row.remove();
-        refreshBoardingWetFoodRowLabels();
+        refreshBoardingWetFoodRowLabels($section);
       }
 
-      updateBoardingWetFoodRemoveButtons();
+      updateBoardingWetFoodRemoveButtons($section);
       saveBoardingCheckinData();
     });
 
-    refreshBoardingDryFoodRowLabels();
-    updateBoardingDryFoodRemoveButtons();
-    refreshBoardingWetFoodRowLabels();
-    updateBoardingWetFoodRemoveButtons();
+    $('.boarding-pet-section').each(function() {
+      const $section = $(this);
+      refreshBoardingDryFoodRowLabels($section);
+      updateBoardingDryFoodRemoveButtons($section);
+      refreshBoardingWetFoodRowLabels($section);
+      updateBoardingWetFoodRemoveButtons($section);
+    });
 
-    $(document).on('change input', '.boarding-med-row input, .boarding-med-row select', function() {
+    $(document).on('change input', '.boarding-pet-section .boarding-med-row input, .boarding-pet-section .boarding-med-row select', function() {
       const $row = $(this).closest('.boarding-med-row');
       toggleBoardingMedicationCustomTime($row);
       saveBoardingCheckinData();
     });
 
-    $(document).on('click', '#add_boarding_medication', function() {
-      addBoardingMedicationRow();
+    $(document).on('click', '.add-boarding-medication', function() {
+      const $section = $(this).closest('.boarding-pet-section');
+      addBoardingMedicationRow($section);
       saveBoardingCheckinData();
     });
 
     $(document).on('click', '.remove-boarding-medication', function() {
       const $row = $(this).closest('.boarding-med-row');
-      const totalRows = $('#boarding_meds_container .boarding-med-row').length;
+      const $section = $(this).closest('.boarding-pet-section');
+      const totalRows = $section.find('.boarding-meds-container .boarding-med-row').length;
 
       if (totalRows <= 1) {
         $row.find('.boarding-med-name').val('');
@@ -2968,17 +3032,20 @@
         toggleBoardingMedicationCustomTime($row);
       } else {
         $row.remove();
-        refreshBoardingMedicationRowLabels();
+        refreshBoardingMedicationRowLabels($section);
       }
 
-      updateBoardingMedicationRemoveButtons();
+      updateBoardingMedicationRemoveButtons($section);
       saveBoardingCheckinData();
     });
 
-    refreshBoardingMedicationRowLabels();
-    updateBoardingMedicationRemoveButtons();
-    $('#boarding_meds_container .boarding-med-row').each(function() {
-      toggleBoardingMedicationCustomTime($(this));
+    $('.boarding-pet-section').each(function() {
+      const $section = $(this);
+      refreshBoardingMedicationRowLabels($section);
+      updateBoardingMedicationRemoveButtons($section);
+      $section.find('.boarding-meds-container .boarding-med-row').each(function() {
+        toggleBoardingMedicationCustomTime($(this));
+      });
     });
     initializeBoardingSignaturePad();
     @endif
@@ -3438,12 +3505,17 @@
     const estimatedPrice = $('#estimated_price').val();
     const parsedEstimatedPrice = parseFloat(estimatedPrice);
     const isBoarding = {{ isBoardingService($appointment->service) ? 'true' : 'false' }};
+    const checkinStateTaxRate = parseFloat(@json((float) config('billing.state_tax_rate', 7)));
 
     if (!estimatedPrice || isNaN(parsedEstimatedPrice)) {
       $('#alert_message').text('Please provide a valid estimated price.');
       alert_modal.showModal();
       return;
     }
+
+    const estimatedPriceForSave = (isBoarding && checkinStateTaxRate > 0)
+      ? (parsedEstimatedPrice / (1 + (checkinStateTaxRate / 100)))
+      : parsedEstimatedPrice;
 
     // Validate required fields - pickup_time is not required for boarding services
     if (!date || !startTime || (!isBoarding && !pickupTime)) {
@@ -3482,7 +3554,7 @@
             return;
           }
 
-          submitCheckedInConfirmation(date, startTime, pickupTime, notes, estimatedPrice);
+          submitCheckedInConfirmation(date, startTime, pickupTime, notes, estimatedPriceForSave.toFixed(2));
         },
         error: function() {
           console.error('Failed to validate appointment details.');
@@ -3805,9 +3877,73 @@
   }
 
   function saveBoardingCheckinData() {
-    const medicationsList = getBoardingMedicationsData();
-    const dryFoodList = getBoardingDryFoodData();
-    const wetFoodList = getBoardingWetFoodData();
+    const petSpecific = {};
+    const allMedications = [];
+    const allDryFood = [];
+    const allWetFood = [];
+
+    $('.boarding-pet-section').each(function() {
+      const $section = $(this);
+      const petId = String($section.data('pet-id') || '').trim();
+      if (!petId) {
+        return;
+      }
+
+      const dryFoodList = getBoardingDryFoodData($section);
+      const wetFoodList = getBoardingWetFoodData($section);
+      const medicationsList = getBoardingMedicationsData($section);
+
+      const firstDryFood = dryFoodList.length > 0 ? dryFoodList[0] : {};
+      const firstWetFood = wetFoodList.length > 0 ? wetFoodList[0] : {};
+      const firstMedication = medicationsList.length > 0 ? medicationsList[0] : {};
+
+      petSpecific[petId] = {
+        other_items_description: ($section.find('.boarding-other-items-description').val() || '').trim() || null,
+        dry_food_list: dryFoodList,
+        wet_food_list: wetFoodList,
+        meds_list: medicationsList,
+        dry_food: {
+          brand: firstDryFood.brand || null,
+          amount: firstDryFood.amount || null,
+          dispense_am: dryFoodList.some(item => item.dispense_am === true),
+          dispense_pm: dryFoodList.some(item => item.dispense_pm === true),
+          dispense_lunch: dryFoodList.some(item => item.dispense_lunch === true)
+        },
+        wet_food: {
+          brand: firstWetFood.brand || null,
+          amount: firstWetFood.amount || null,
+          dispense_am: wetFoodList.some(item => item.dispense_am === true),
+          dispense_pm: wetFoodList.some(item => item.dispense_pm === true),
+          dispense_lunch: wetFoodList.some(item => item.dispense_lunch === true)
+        },
+        meds: {
+          name: firstMedication.name || null,
+          amount: firstMedication.amount || null,
+          dispense_am: medicationsList.some(item => item.dispense_am === true),
+          dispense_pm: medicationsList.some(item => item.dispense_pm === true || item.dispense_before_bed === true),
+          dispense_rest: medicationsList.some(item => item.dispense_rest === true || item.dispense_before_bed === true)
+        }
+      };
+
+      allDryFood.push(...dryFoodList);
+      allWetFood.push(...wetFoodList);
+      allMedications.push(...medicationsList);
+    });
+
+    const petSpecificKeys = Object.keys(petSpecific);
+    const primaryPetData = petSpecificKeys.length > 0 ? petSpecific[petSpecificKeys[0]] : {
+      other_items_description: null,
+      dry_food_list: [],
+      wet_food_list: [],
+      meds_list: [],
+      dry_food: {},
+      wet_food: {},
+      meds: {}
+    };
+
+    const medicationsList = allMedications;
+    const dryFoodList = allDryFood;
+    const wetFoodList = allWetFood;
     const hasAm = medicationsList.some(item => item.dispense_am === true);
     const hasPm = medicationsList.some(item => item.dispense_pm === true || item.dispense_before_bed === true);
     const hasRest = medicationsList.some(item => item.dispense_rest === true || item.dispense_before_bed === true);
@@ -3854,26 +3990,26 @@
       has_leash: $('#boarding_has_leash').is(':checked'),
       has_collar: $('#boarding_has_collar').is(':checked'),
       has_other_items: $('#boarding_has_other_items').is(':checked'),
-      other_items_description: $('#boarding_other_items_description').val() || null,
+      other_items_description: primaryPetData.other_items_description || null,
 
-      dry_food_list: dryFoodList,
+      dry_food_list: primaryPetData.dry_food_list || [],
       dry_food: {
-        brand: firstDryFood.brand || null,
-        amount: firstDryFood.amount || null,
-        dispense_am: hasDryAm,
-        dispense_pm: hasDryPm,
-        dispense_lunch: hasDryLunch
+        brand: (primaryPetData.dry_food || {}).brand || null,
+        amount: (primaryPetData.dry_food || {}).amount || null,
+        dispense_am: (primaryPetData.dry_food || {}).dispense_am === true,
+        dispense_pm: (primaryPetData.dry_food || {}).dispense_pm === true,
+        dispense_lunch: (primaryPetData.dry_food || {}).dispense_lunch === true
       },
-      wet_food_list: wetFoodList,
+      wet_food_list: primaryPetData.wet_food_list || [],
       wet_food: {
-        brand: firstWetFood.brand || null,
-        amount: firstWetFood.amount || null,
-        dispense_am: hasWetAm,
-        dispense_pm: hasWetPm,
-        dispense_lunch: hasWetLunch
+        brand: (primaryPetData.wet_food || {}).brand || null,
+        amount: (primaryPetData.wet_food || {}).amount || null,
+        dispense_am: (primaryPetData.wet_food || {}).dispense_am === true,
+        dispense_pm: (primaryPetData.wet_food || {}).dispense_pm === true,
+        dispense_lunch: (primaryPetData.wet_food || {}).dispense_lunch === true
       },
-      meds: legacyMeds,
-      meds_list: medicationsList,
+      meds: (primaryPetData.meds && typeof primaryPetData.meds === 'object') ? primaryPetData.meds : legacyMeds,
+      meds_list: primaryPetData.meds_list || [],
       medications: medicationsList.length
         ? medicationsList.map(item => {
             const dispenseLabels = [];
@@ -3894,8 +4030,13 @@
         : null,
       medications_am: hasAm,
       medications_pm: hasPm,
+      feeding_am: hasDryAm || hasWetAm,
+      feeding_pm: hasDryPm || hasWetPm,
+      feeding_lunch: hasDryLunch || hasWetLunch,
       rest_required: restRequired,
       rest_note: restRequired ? (restNote || null) : null,
+
+      pet_specific: petSpecific,
 
       boarding_agreement_accepted: $('#boarding_agreement_accepted').is(':checked'),
       boarding_vet_authorized: $('#boarding_vet_authorized').is(':checked'),
@@ -4075,10 +4216,11 @@
     return labels[condition] || '';
   }
 
-  function getBoardingDryFoodData() {
+  function getBoardingDryFoodData($section = null) {
     const foods = [];
+    const $root = $section && $section.length ? $section : $(document);
 
-    $('#boarding_dry_food_container .boarding-dry-food-row').each(function() {
+    $root.find('.boarding-dry-food-container .boarding-dry-food-row').each(function() {
       const brand = ($(this).find('.boarding-dry-food-brand').val() || '').trim();
       const amount = ($(this).find('.boarding-dry-food-amount').val() || '').trim();
       const dispenseAm = $(this).find('.boarding-dry-food-dispense-am').is(':checked');
@@ -4101,10 +4243,11 @@
     return foods;
   }
 
-  function getBoardingWetFoodData() {
+  function getBoardingWetFoodData($section = null) {
     const foods = [];
+    const $root = $section && $section.length ? $section : $(document);
 
-    $('#boarding_wet_food_container .boarding-wet-food-row').each(function() {
+    $root.find('.boarding-wet-food-container .boarding-wet-food-row').each(function() {
       const brand = ($(this).find('.boarding-wet-food-brand').val() || '').trim();
       const amount = ($(this).find('.boarding-wet-food-amount').val() || '').trim();
       const dispenseAm = $(this).find('.boarding-wet-food-dispense-am').is(':checked');
@@ -4127,40 +4270,45 @@
     return foods;
   }
 
-  function refreshBoardingDryFoodRowLabels() {
-    $('#boarding_dry_food_container .boarding-dry-food-row').each(function(index) {
+  function refreshBoardingDryFoodRowLabels($section = null) {
+    const $root = $section && $section.length ? $section : $(document);
+    $root.find('.boarding-dry-food-container .boarding-dry-food-row').each(function(index) {
       $(this).attr('data-row-index', index);
       $(this).find('.text-sm.font-medium').first().text('Dry Food #' + (index + 1));
     });
   }
 
-  function refreshBoardingWetFoodRowLabels() {
-    $('#boarding_wet_food_container .boarding-wet-food-row').each(function(index) {
+  function refreshBoardingWetFoodRowLabels($section = null) {
+    const $root = $section && $section.length ? $section : $(document);
+    $root.find('.boarding-wet-food-container .boarding-wet-food-row').each(function(index) {
       $(this).attr('data-row-index', index);
       $(this).find('.text-sm.font-medium').first().text('Wet Food #' + (index + 1));
     });
   }
 
-  function updateBoardingDryFoodRemoveButtons() {
-    const totalRows = $('#boarding_dry_food_container .boarding-dry-food-row').length;
+  function updateBoardingDryFoodRemoveButtons($section = null) {
+    const $root = $section && $section.length ? $section : $(document);
+    const totalRows = $root.find('.boarding-dry-food-container .boarding-dry-food-row').length;
     const shouldDisable = totalRows <= 1;
 
-    $('#boarding_dry_food_container .remove-boarding-dry-food').prop('disabled', shouldDisable);
-    $('#boarding_dry_food_container .remove-boarding-dry-food .iconify').toggleClass('text-base-content/30', shouldDisable);
-    $('#boarding_dry_food_container .remove-boarding-dry-food .iconify').toggleClass('text-error', !shouldDisable);
+    $root.find('.boarding-dry-food-container .remove-boarding-dry-food').prop('disabled', shouldDisable);
+    $root.find('.boarding-dry-food-container .remove-boarding-dry-food .iconify').toggleClass('text-base-content/30', shouldDisable);
+    $root.find('.boarding-dry-food-container .remove-boarding-dry-food .iconify').toggleClass('text-error', !shouldDisable);
   }
 
-  function updateBoardingWetFoodRemoveButtons() {
-    const totalRows = $('#boarding_wet_food_container .boarding-wet-food-row').length;
+  function updateBoardingWetFoodRemoveButtons($section = null) {
+    const $root = $section && $section.length ? $section : $(document);
+    const totalRows = $root.find('.boarding-wet-food-container .boarding-wet-food-row').length;
     const shouldDisable = totalRows <= 1;
 
-    $('#boarding_wet_food_container .remove-boarding-wet-food').prop('disabled', shouldDisable);
-    $('#boarding_wet_food_container .remove-boarding-wet-food .iconify').toggleClass('text-base-content/30', shouldDisable);
-    $('#boarding_wet_food_container .remove-boarding-wet-food .iconify').toggleClass('text-error', !shouldDisable);
+    $root.find('.boarding-wet-food-container .remove-boarding-wet-food').prop('disabled', shouldDisable);
+    $root.find('.boarding-wet-food-container .remove-boarding-wet-food .iconify').toggleClass('text-base-content/30', shouldDisable);
+    $root.find('.boarding-wet-food-container .remove-boarding-wet-food .iconify').toggleClass('text-error', !shouldDisable);
   }
 
-  function addBoardingDryFoodRow() {
-    const rowIndex = $('#boarding_dry_food_container .boarding-dry-food-row').length;
+  function addBoardingDryFoodRow($section = null) {
+    const $root = $section && $section.length ? $section : $(document);
+    const rowIndex = $root.find('.boarding-dry-food-container .boarding-dry-food-row').length;
     const rowHtml = `
       <div class="border border-base-300 rounded-box p-3 space-y-2 boarding-dry-food-row" data-row-index="${rowIndex}">
         <div class="flex items-center justify-between">
@@ -4199,13 +4347,14 @@
       </div>
     `;
 
-    $('#boarding_dry_food_container').append(rowHtml);
-    refreshBoardingDryFoodRowLabels();
-    updateBoardingDryFoodRemoveButtons();
+    $root.find('.boarding-dry-food-container').first().append(rowHtml);
+    refreshBoardingDryFoodRowLabels($root);
+    updateBoardingDryFoodRemoveButtons($root);
   }
 
-  function addBoardingWetFoodRow() {
-    const rowIndex = $('#boarding_wet_food_container .boarding-wet-food-row').length;
+  function addBoardingWetFoodRow($section = null) {
+    const $root = $section && $section.length ? $section : $(document);
+    const rowIndex = $root.find('.boarding-wet-food-container .boarding-wet-food-row').length;
     const rowHtml = `
       <div class="border border-base-300 rounded-box p-3 space-y-2 boarding-wet-food-row" data-row-index="${rowIndex}">
         <div class="flex items-center justify-between">
@@ -4244,15 +4393,16 @@
       </div>
     `;
 
-    $('#boarding_wet_food_container').append(rowHtml);
-    refreshBoardingWetFoodRowLabels();
-    updateBoardingWetFoodRemoveButtons();
+    $root.find('.boarding-wet-food-container').first().append(rowHtml);
+    refreshBoardingWetFoodRowLabels($root);
+    updateBoardingWetFoodRemoveButtons($root);
   }
 
-  function getBoardingMedicationsData() {
+  function getBoardingMedicationsData($section = null) {
     const medications = [];
+    const $root = $section && $section.length ? $section : $(document);
 
-    $('#boarding_meds_container .boarding-med-row').each(function() {
+    $root.find('.boarding-meds-container .boarding-med-row').each(function() {
       const name = ($(this).find('.boarding-med-name').val() || '').trim();
       const amount = ($(this).find('.boarding-med-amount').val() || '').trim();
       const mealCondition = ($(this).find('.boarding-med-meal-condition').val() || '').trim();
@@ -4296,24 +4446,27 @@
     }
   }
 
-  function refreshBoardingMedicationRowLabels() {
-    $('#boarding_meds_container .boarding-med-row').each(function(index) {
+  function refreshBoardingMedicationRowLabels($section = null) {
+    const $root = $section && $section.length ? $section : $(document);
+    $root.find('.boarding-meds-container .boarding-med-row').each(function(index) {
       $(this).attr('data-row-index', index);
       $(this).find('.text-sm.font-medium').first().text('Medication #' + (index + 1));
     });
   }
 
-  function updateBoardingMedicationRemoveButtons() {
-    const totalRows = $('#boarding_meds_container .boarding-med-row').length;
+  function updateBoardingMedicationRemoveButtons($section = null) {
+    const $root = $section && $section.length ? $section : $(document);
+    const totalRows = $root.find('.boarding-meds-container .boarding-med-row').length;
     const shouldDisable = totalRows <= 1;
 
-    $('#boarding_meds_container .remove-boarding-medication').prop('disabled', shouldDisable);
-    $('#boarding_meds_container .remove-boarding-medication .iconify').toggleClass('text-base-content/30', shouldDisable);
-    $('#boarding_meds_container .remove-boarding-medication .iconify').toggleClass('text-error', !shouldDisable);
+    $root.find('.boarding-meds-container .remove-boarding-medication').prop('disabled', shouldDisable);
+    $root.find('.boarding-meds-container .remove-boarding-medication .iconify').toggleClass('text-base-content/30', shouldDisable);
+    $root.find('.boarding-meds-container .remove-boarding-medication .iconify').toggleClass('text-error', !shouldDisable);
   }
 
-  function addBoardingMedicationRow() {
-    const rowIndex = $('#boarding_meds_container .boarding-med-row').length;
+  function addBoardingMedicationRow($section = null) {
+    const $root = $section && $section.length ? $section : $(document);
+    const rowIndex = $root.find('.boarding-meds-container .boarding-med-row').length;
     const rowHtml = `
       <div class="border border-base-300 rounded-box p-3 space-y-2 boarding-med-row" data-row-index="${rowIndex}">
         <div class="flex items-center justify-between">
@@ -4373,9 +4526,9 @@
       </div>
     `;
 
-    $('#boarding_meds_container').append(rowHtml);
-    refreshBoardingMedicationRowLabels();
-    updateBoardingMedicationRemoveButtons();
+    $root.find('.boarding-meds-container').first().append(rowHtml);
+    refreshBoardingMedicationRowLabels($root);
+    updateBoardingMedicationRemoveButtons($root);
   }
 
   // Treatment issues management
@@ -4890,6 +5043,8 @@
   const hasPersistedInvoiceDiscount = {{ ($invoice && (float) $invoice->discount_amount > 0) ? 'true' : 'false' }};
   const persistedInvoiceDiscountAmount = parseFloat(@json($invoice->discount_amount ?? 0));
   const persistedInvoiceDiscountTitle = @json($invoice->discount_title ?? null);
+  const invoiceStateTaxRate = parseFloat(@json((float) config('billing.state_tax_rate', 7)));
+  const isBoardingInvoice = {{ isBoardingService($appointment->service) ? 'true' : 'false' }};
   let currentDiscountTitle = null;
   const invoiceCustomerFullName = @json(trim((($appointment->customer->profile->first_name ?? '') . ' ' . ($appointment->customer->profile->last_name ?? ''))) ?: ($appointment->customer->name ?? 'customer'));
   function addInventoryItem() {
@@ -5026,10 +5181,21 @@
     const discountAmount = hasPersistedInvoiceDiscount
       ? Math.max(0, Math.min(estimatedPrice, persistedInvoiceDiscountAmount || 0))
       : calculatedDiscountAmount;
-    const totalAmount = Math.max(0, estimatedPrice - discountAmount + inventoryRowsTotal);
+    const subtotalAmount = Math.max(0, estimatedPrice - discountAmount + inventoryRowsTotal);
+    const effectiveTaxRate = isBoardingInvoice ? Math.max(0, invoiceStateTaxRate || 0) : 0;
+    const stateTaxAmount = subtotalAmount * (effectiveTaxRate / 100);
+    const totalAmount = subtotalAmount + stateTaxAmount;
 
     $('#total_price_of_services').text('$' + serviceTotal.toFixed(2));
     $('#inventory_total_amount').text('$' + inventoryRowsTotal.toFixed(2));
+    $('#invoice_subtotal_amount').text('$' + subtotalAmount.toFixed(2));
+    $('#invoice_state_tax_rate_label').text(effectiveTaxRate.toFixed(2).replace(/\.00$/, ''));
+    $('#invoice_state_tax_amount').text('$' + stateTaxAmount.toFixed(2));
+    if (effectiveTaxRate > 0) {
+      $('#invoice_state_tax_row').show();
+    } else {
+      $('#invoice_state_tax_row').hide();
+    }
     $('#grand_total_amount').text('$' + totalAmount.toFixed(2));
 
     const discountRow = $('#invoice_discount_row');
@@ -5053,6 +5219,9 @@
     return {
       serviceTotal,
       inventoryRowsTotal,
+      subtotalAmount,
+      stateTaxAmount,
+      stateTaxRate: effectiveTaxRate,
       discountAmount,
       discountRule: discountResult.rule || null,
       totalAmount

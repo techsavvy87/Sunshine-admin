@@ -335,18 +335,16 @@
                             <tbody>
                                 @forelse($recentAppointments as $appointment)
                                 <tr>
-                                    <td class="flex items-center space-x-3 truncate">
-                                        @if($appointment->pet && $appointment->pet->pet_img)
-                                        <img alt="pet image" class="mask mask-squircle bg-base-200 size-7.5"
-                                            src="{{ empty($appointment->pet->pet_img) ? asset('images/no_image.jpg') : asset('storage/pets/'. $appointment->pet->pet_img) }}" />
-                                        @else
-                                        <div
-                                            class="mask mask-squircle bg-base-200 size-7.5 flex items-center justify-center">
-                                            <span
-                                                class="iconify lucide--brain-circuit size-4 text-base-content/60"></span>
+                                    <td>
+                                        <div class="flex items-center space-x-3 truncate">
+                                            <div class="flex -space-x-2 shrink-0">
+                                                @foreach(($appointment->display_pets ?? collect()) as $petDisplay)
+                                                    <img alt="pet image" class="mask mask-squircle bg-base-200 size-7.5"
+                                                        src="{{ !empty($petDisplay['pet_img']) ? asset('storage/pets/'.$petDisplay['pet_img']) : asset('images/no_image.jpg') }}" />
+                                                @endforeach
+                                            </div>
+                                            <p>{{ $appointment->display_pet_names ?? ($appointment->pet->name ?? 'N/A') }}</p>
                                         </div>
-                                        @endif
-                                        <p>{{ $appointment->pet->name ?? 'N/A' }}</p>
                                     </td>
                                     <td class="font-medium">{{ $appointment->service->name ?? 'N/A' }}</td>
                                     <td class="font-medium">${{ number_format($appointment->total_price ?? 0, 2) }}</td>

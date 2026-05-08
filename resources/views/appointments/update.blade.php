@@ -137,7 +137,7 @@
               @endforeach
             </select>
           </div>
-          <div class="space-y-2" id="time_slot_group">
+          <div class="space-y-2 {{ !empty($selectedAdditionalServices) ? '' : 'hidden' }}" id="time_slot_group">
             <label class="fieldset-label" for="time_slot">Start Time - End Time*</label>
             @php
               $selectedTimeSlotId = $appointment->metadata['additional_service_time_slot_id'] ?? null;
@@ -684,21 +684,25 @@
         return;
       }
 
-      const savedAdditionalServiceId = "{{ $appointment->metadata['additional_service_time_slot_service_id'] ?? '' }}";
-      const additionalServiceId = getSelectedAdditionalServiceForTimeSlot() || savedAdditionalServiceId;
+      const additionalServiceId = getSelectedAdditionalServiceForTimeSlot();
       const petId = getPrimaryPetId();
       const boardingEndDateTime = $('#boarding_end_datetime').val();
       const pickupDate = boardingEndDateTime ? boardingEndDateTime.split('T')[0] : '';
       const pickupTime = boardingEndDateTime ? boardingEndDateTime.split('T')[1] : '';
 
-      $('#time_slot_group').removeClass('hidden');
-
       if (!additionalServiceId) {
+        $('#time_slot_group').addClass('hidden');
+        $('#time_slot').empty().append('<option value="" hidden selected>Choose a time slot</option>');
+        $('#time_slot').val('').trigger('change');
         $('#time_slot_data').val('');
         return;
       }
 
+      $('#time_slot_group').removeClass('hidden');
+
       if (!petId || !pickupDate || !pickupTime) {
+        $('#time_slot').empty().append('<option value="" hidden selected>Select pet and pick up time first</option>');
+        $('#time_slot').val('').trigger('change');
         $('#time_slot_data').val('');
         return;
       }
@@ -897,13 +901,7 @@
         return;
       }
 
-      if (isBoarding && selectedAdditionalServices.length === 0) {
-        $('#alert_message').text('Please select at least one additional service.');
-        alert_modal.showModal();
-        return;
-      }
-
-      if (isBoarding && !timeSlot) {
+      if (isBoarding && selectedAdditionalServices.length > 0 && !timeSlot) {
         $('#alert_message').text('Please select a valid time slot for the additional service.');
         alert_modal.showModal();
         return;

@@ -58,36 +58,9 @@ class KennelController extends Controller
             return collect([$appointment->pet])->filter();
         };
 
-        $today = Carbon::today()->toDateString();
-
-        $activeBoardingAppointmentsByKennel = Appointment::with(['pet', 'customer'])
-            ->whereNotNull('kennel_id')
-            ->whereNotIn('status', ['cancelled', 'canceled', 'no_show'])
-            ->whereHas('service.category', function ($query) {
-                $query->whereRaw('LOWER(name) LIKE ?', ['%boarding%']);
-            })
-            ->whereDate('date', '<=', $today)
-            ->whereRaw('COALESCE(end_date, date) >= ?', [$today])
-            ->orderBy('date', 'desc')
-            ->orderBy('start_time', 'desc')
-            ->orderBy('id', 'desc')
-            ->get()
-            ->groupBy('kennel_id')
-            ->map(function ($appointments) use ($collectAppointmentPets) {
-                return $appointments->flatMap(function ($appointment) use ($collectAppointmentPets) {
-                    return $collectAppointmentPets($appointment);
-                })->filter()->unique('id')->values();
-            });
-
-        $kennels->getCollection()->transform(function ($kennel) use ($activeBoardingAppointmentsByKennel) {
-            $kennel->current_pets = $activeBoardingAppointmentsByKennel->get($kennel->id, collect());
-            $kennel->current_pet = $kennel->current_pets->first();
-            return $kennel;
-        });
-
         $boardingAppointmentsByKennel = Appointment::with(['pet', 'customer'])
             ->whereIn('kennel_id', $kennelIds)
-            ->whereNotIn('status', ['cancelled', 'no_show'])
+            ->whereNotIn('status', ['cancelled', 'canceled', 'no_show'])
             ->whereHas('service.category', function ($query) {
                 $query->whereRaw('LOWER(name) LIKE ?', ['%boarding%']);
             })
@@ -98,6 +71,30 @@ class KennelController extends Controller
             ->orderBy('id')
             ->get()
             ->groupBy('kennel_id');
+
+        $kennels->getCollection()->transform(function ($kennel) use ($boardingAppointmentsByKennel, $collectAppointmentPets) {
+            $appointments = $boardingAppointmentsByKennel->get($kennel->id, collect());
+
+            $kennel->assigned_pet_bookings = $appointments->map(function ($appointment) use ($collectAppointmentPets) {
+                return (object) [
+                    'appointment_id' => $appointment->id,
+                    'start_date' => Carbon::parse($appointment->date)->toDateString(),
+                    'end_date' => $appointment->end_date
+                        ? Carbon::parse($appointment->end_date)->toDateString()
+                        : Carbon::parse($appointment->date)->toDateString(),
+                    'pets' => $collectAppointmentPets($appointment)->unique('id')->values(),
+                ];
+            })->values();
+
+            $kennel->current_pets = $kennel->assigned_pet_bookings
+                ->flatMap(fn ($booking) => $booking->pets)
+                ->filter()
+                ->unique('id')
+                ->values();
+            $kennel->current_pet = $kennel->current_pets->first();
+
+            return $kennel;
+        });
 
         $availabilityMatrix = [];
 

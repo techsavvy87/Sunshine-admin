@@ -41,7 +41,7 @@
               <div class="xl:col-span-2 space-y-2">
                 <label class="fieldset-label" for="name">Kennel Name*</label>
                 <label class="input w-full focus:outline-0">
-                  <input class="grow focus:outline-0" placeholder="e.g. Room A" id="name" name="name" type="text" value="{{ old('name') }}" />
+                  <input class="grow focus:outline-0" placeholder="e.g. Kennel A" id="name" name="name" type="text" value="{{ old('name') }}" />
                 </label>
               </div>
               <div class="space-y-2">

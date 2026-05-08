@@ -386,7 +386,7 @@
 const alert_modal = document.getElementById('alert_modal');
 let currentTab = 'am-feeding-meds';
 let currentProcessItem = null;
-let selectedAppointmentIds = @json($appointmentIds);
+let selectedAppointmentIds = [];
 let appointmentToPetMap = {};
 let workflowData = @json($flows);
 let lastLunchCheckinData = null;
@@ -396,11 +396,33 @@ let isLoadingCheckinRestMeta = false;
 let yesterdayNextDayPetIds = [];
 let yesterdayReportsPmIssues = {};
 
+function getWorkflowItemId(item) {
+    if (!item) return null;
+    const workflowId = parseInt(item.workflow_id ?? item.pet_id ?? item.appointment_id, 10);
+    return isNaN(workflowId) ? null : workflowId;
+}
+
+function getSelectedRequestAppointmentIds() {
+    const appointmentIds = (selectedAppointmentIds || []).map(function(workflowId) {
+        const pet = appointmentToPetMap[workflowId] || appointmentToPetMap[String(workflowId)] || null;
+        if (pet && pet.appointment_id) {
+            return parseInt(pet.appointment_id, 10);
+        }
+
+        const fallbackId = parseInt(workflowId, 10);
+        return isNaN(fallbackId) ? null : fallbackId;
+    }).filter(function(id) {
+        return !isNaN(id) && id > 0;
+    });
+
+    return [...new Set(appointmentIds)];
+}
+
 function updateCheckinRestMetaFromData(checkinData) {
     if (!Array.isArray(checkinData)) return;
     checkinData.forEach(function(item) {
-        const aid = parseInt(item.appointment_id, 10);
-        if (isNaN(aid)) return;
+        const aid = getWorkflowItemId(item);
+        if (aid === null) return;
         const restRequired = item.rest_required === true || item.rest_required === 'true' || item.rest_required === 1 ||
             item.rest_required === '1';
         const scheduledRest = item.scheduled_rest === true || item.scheduled_rest === 'true' || item.scheduled_rest ===
@@ -426,7 +448,7 @@ function ensureCheckinRestMetaLoaded() {
         method: 'POST',
         data: {
             _token: '{{ csrf_token() }}',
-            appointment_ids: selectedAppointmentIds
+            appointment_ids: getSelectedRequestAppointmentIds()
         },
         success: function(response) {
             const data = response && response.success && Array.isArray(response.data) ? response.data : [];
@@ -566,25 +588,43 @@ function updateProcessDetailTitle(stepTitle = null) {
 }
 
 @foreach($processes as $proc)
-    @if($proc -> appointment && $proc -> appointment -> pet)
-    appointmentToPetMap[{{ $proc->appointment_id }}] = {
-        pet_id: {{ $proc->appointment->pet->id }},
-        pet_name: @json($proc->appointment->pet->name ?? 'N/A'),
-        pet_img: @json($proc->appointment->pet->pet_img ?? ''),
-        customer_name: @json(
-            $proc->appointment->customer && $proc->appointment->customer->profile
-                ? ($proc->appointment->customer->profile->first_name . ' ' . $proc->appointment->customer->profile->last_name)
-                : 'N/A'
-        ),
-        customer_avatar: @json(
-            $proc->appointment->customer && $proc->appointment->customer->profile
-                ? ($proc->appointment->customer->profile->avatar_img ?? '')
-                : ''
-        ),
-        appointment_id: {{ $proc->appointment_id }}
-    };
+    @if($proc->appointment)
+        @php
+            $workflowPets = $proc->appointment->familyPets ?? collect();
+            if ($workflowPets->isEmpty() && $proc->appointment->pet) {
+                $workflowPets = collect([$proc->appointment->pet]);
+            }
+            $isFamilyAppointment = $workflowPets->count() > 1;
+        @endphp
+        @foreach($workflowPets as $workflowPet)
+            @if($workflowPet)
+                @php
+                    $workflowId = $isFamilyAppointment ? (int) $workflowPet->id : (int) $proc->appointment_id;
+                @endphp
+                appointmentToPetMap[{{ $workflowId }}] = {
+                    workflow_id: {{ $workflowId }},
+                    pet_id: {{ $workflowPet->id }},
+                    pet_name: @json($workflowPet->name ?? 'N/A'),
+                    pet_img: @json($workflowPet->pet_img ?? ''),
+                    customer_name: @json(
+                        $proc->appointment->customer && $proc->appointment->customer->profile
+                            ? ($proc->appointment->customer->profile->first_name . ' ' . $proc->appointment->customer->profile->last_name)
+                            : 'N/A'
+                    ),
+                    customer_avatar: @json(
+                        $proc->appointment->customer && $proc->appointment->customer->profile
+                            ? ($proc->appointment->customer->profile->avatar_img ?? '')
+                            : ''
+                    ),
+                    appointment_id: {{ $proc->appointment_id }}
+                };
+                selectedAppointmentIds.push({{ $workflowId }});
+            @endif
+        @endforeach
     @endif
 @endforeach
+
+selectedAppointmentIds = [...new Set(selectedAppointmentIds.map(function(id) { return parseInt(id, 10); }).filter(function(id) { return !isNaN(id); }))];
 
 function fetchYesterdayNextDayPetIds() {
     const date = $('#workflow_date').val();
@@ -599,7 +639,8 @@ function fetchYesterdayNextDayPetIds() {
         data: {
             _token: '{{ csrf_token() }}',
             date: date,
-            appointment_ids: selectedAppointmentIds
+            appointment_ids: getSelectedRequestAppointmentIds(),
+            workflow_ids: selectedAppointmentIds
         },
         dataType: 'json',
         success: function(response) {
@@ -653,8 +694,8 @@ function getLunchStepPetIds(checkinData) {
     let alwaysLunchIds = [];
     if (checkinData && Array.isArray(checkinData)) {
         checkinData.forEach(function(item) {
-            const aid = parseInt(item.appointment_id, 10);
-            if (isNaN(aid)) return;
+            const aid = getWorkflowItemId(item);
+            if (aid === null) return;
             if ((item.lunch_dry === true || item.lunch_dry === 'true') || (item.lunch_wet === true || item
                     .lunch_wet === 'true')) {
                 alwaysLunchIds.push(aid);
@@ -908,7 +949,7 @@ function loadPetDetails() {
             method: 'POST',
             data: {
                 _token: '{{ csrf_token() }}',
-                appointment_ids: selectedAppointmentIds
+                appointment_ids: getSelectedRequestAppointmentIds()
             },
             success: function(response) {
                 const data = response.success && response.data ? response.data : null;
@@ -947,7 +988,7 @@ function loadPetDetails() {
             method: 'POST',
             data: {
                 _token: '{{ csrf_token() }}',
-                appointment_ids: selectedAppointmentIds
+                appointment_ids: getSelectedRequestAppointmentIds()
             },
             success: function(response) {
                 const data = response.success && response.data ? response.data : null;
@@ -1020,7 +1061,7 @@ function loadPetDetails() {
             method: 'POST',
             data: {
                 _token: '{{ csrf_token() }}',
-                appointment_ids: selectedAppointmentIds
+                appointment_ids: getSelectedRequestAppointmentIds()
             },
             success: function(response) {
                 renderDneListForm(amOrPm, response.success && response.data ? response.data : null);
@@ -1102,7 +1143,7 @@ function loadPetDetails() {
             method: 'POST',
             data: {
                 _token: '{{ csrf_token() }}',
-                appointment_ids: selectedAppointmentIds
+                appointment_ids: getSelectedRequestAppointmentIds()
             },
             success: function(response) {
                 const checkinData = response.success && response.data ? response.data : null;
@@ -1138,7 +1179,7 @@ function loadPetDetails() {
         method: 'POST',
         data: {
             _token: '{{ csrf_token() }}',
-            appointment_ids: selectedAppointmentIds
+            appointment_ids: getSelectedRequestAppointmentIds()
         },
         success: function(response) {
             if (response.success && response.data) {
@@ -1317,13 +1358,19 @@ function renderPetDetailsTable(data) {
         const feedingAmData = workflowData['feeding_am'] || {};
         const feedingAmPetIds = feedingAmData.selected_pet_ids ? feedingAmData.selected_pet_ids.map(id => parseInt(
             id)) : [];
-        filteredData = data.filter(item => !feedingAmPetIds.includes(parseInt(item.appointment_id)));
+        filteredData = data.filter(item => {
+            const workflowId = getWorkflowItemId(item);
+            return workflowId === null || !feedingAmPetIds.includes(workflowId);
+        });
     }
     if (isPmFeedingReport) {
         const feedingPmData = workflowData['feeding_pm'] || {};
         const feedingPmPetIds = feedingPmData.selected_pet_ids ? feedingPmData.selected_pet_ids.map(id => parseInt(
             id)) : [];
-        filteredData = data.filter(item => !feedingPmPetIds.includes(parseInt(item.appointment_id)));
+        filteredData = data.filter(item => {
+            const workflowId = getWorkflowItemId(item);
+            return workflowId === null || !feedingPmPetIds.includes(workflowId);
+        });
     }
 
     // Meal/Meds preparation: only show pets that have the corresponding AM/PM dispense checked at check-in
@@ -1386,6 +1433,8 @@ function renderPetDetailsTable(data) {
     }
 
     filteredData.forEach(item => {
+        const workflowId = getWorkflowItemId(item);
+        if (workflowId === null) return;
         const checkin = item.checkin || {};
         const flows = checkin.flows || {};
         const dryFoodRows = getFoodRowsFromFlows(flows, 'dry');
@@ -1401,8 +1450,7 @@ function renderPetDetailsTable(data) {
         const savedData = workflowData[currentProcessItem];
         const savedPetIds = savedData && savedData.selected_pet_ids ? savedData.selected_pet_ids.map(id =>
             parseInt(id)) : [];
-        const isChecked = (isAmFeedingReport || isPmFeedingReport) ? true : savedPetIds.includes(parseInt(item
-            .appointment_id));
+        const isChecked = (isAmFeedingReport || isPmFeedingReport) ? true : savedPetIds.includes(workflowId);
 
         const petAvatarUrl = item.pet_img ?
             '{{ asset("storage/pets/") }}/' + item.pet_img :
@@ -1412,17 +1460,17 @@ function renderPetDetailsTable(data) {
             '{{ asset("storage/profiles/") }}/' + item.customer_avatar :
             '{{ asset("images/default-user-avatar.png") }}';
 
-        const issueValue = savedIssues[item.appointment_id] || '';
+        const issueValue = savedIssues[workflowId] || savedIssues[String(workflowId)] || '';
         const issueCell = isFeedingReport ?
-            `<textarea class="textarea textarea-bordered textarea-xs w-full issue-input" rows="2" style="min-height: 2rem;" data-appointment-id="${item.appointment_id}">${issueValue ? issueValue.replace(/</g, '&lt;').replace(/>/g, '&gt;') : ''}</textarea>` :
+            `<textarea class="textarea textarea-bordered textarea-xs w-full issue-input" rows="2" style="min-height: 2rem;" data-appointment-id="${workflowId}">${issueValue ? issueValue.replace(/</g, '&lt;').replace(/>/g, '&gt;') : ''}</textarea>` :
             (issueValue || '');
 
         const checkboxCell = (isAmFeedingReport || isPmFeedingReport) ? '' : `
           <td>
-            <input class="checkbox checkbox-sm pet-checkbox" type="checkbox" data-appointment-id="${item.appointment_id}" ${isChecked ? 'checked' : ''} />
+                        <input class="checkbox checkbox-sm pet-checkbox" type="checkbox" data-appointment-id="${workflowId}" ${isChecked ? 'checked' : ''} />
           </td>`;
         html += `
-        <tr class="hover:bg-base-200" data-appointment-id="${item.appointment_id}">
+                <tr class="hover:bg-base-200" data-appointment-id="${workflowId}">
           ${checkboxCell}
           <td>
             <div class="flex items-center space-x-3">
@@ -1730,7 +1778,7 @@ function renderTreatmentPlanForm() {
               </label>
               <label class="label cursor-pointer gap-2">
                 <input type="radio" name="treatment_option_${appointmentId}" value="vet-watch" class="radio radio-sm radio-primary" ${savedOption === 'vet-watch' ? 'checked' : ''} />
-                <span class="label-text text-sm">Vet watch</span>
+                <span class="label-text text-sm">Vet</span>
               </label>
             </div>
           </td>
@@ -1868,7 +1916,7 @@ function renderTreatmentListForm() {
             const detail = petTreatmentData.detail || '';
 
             // Get option display text
-            const optionText = option === 'in-house' ? 'In-house' : option === 'vet-watch' ? 'Vet watch' : '-';
+            const optionText = option === 'in-house' ? 'In-house' : option === 'vet-watch' ? 'Vet' : '-';
 
             // Check if this treatment is completed (handle both true/false and undefined)
             const isCompleted = savedTreatmentListData[appointmentId] === true || savedTreatmentListData[
@@ -2249,7 +2297,10 @@ function renderDneListForm(amOrPm, checkinData) {
     const checkinMap = {};
     if (checkinData && Array.isArray(checkinData)) {
         checkinData.forEach(item => {
-            checkinMap[item.appointment_id] = item;
+            const workflowId = getWorkflowItemId(item);
+            if (workflowId !== null) {
+                checkinMap[workflowId] = item;
+            }
         });
     }
 
@@ -2393,7 +2444,10 @@ function renderLunchForm(checkinData) {
     const checkinMap = {};
     if (checkinData && Array.isArray(checkinData)) {
         checkinData.forEach(item => {
-            checkinMap[item.appointment_id] = item;
+            const workflowId = getWorkflowItemId(item);
+            if (workflowId !== null) {
+                checkinMap[workflowId] = item;
+            }
         });
     }
 
@@ -2522,8 +2576,8 @@ function renderRestForm(checkinData) {
     const checkinRestMeta = {};
     if (checkinData && Array.isArray(checkinData)) {
         checkinData.forEach(function(item) {
-            const aid = parseInt(item.appointment_id, 10);
-            if (!isNaN(aid)) {
+            const aid = getWorkflowItemId(item);
+            if (aid !== null) {
                 checkinRestMeta[String(aid)] = {
                     rest_required: item.rest_required === true || item.rest_required === 'true' || item
                         .rest_required === 1 || item.rest_required === '1',
@@ -2531,7 +2585,7 @@ function renderRestForm(checkinData) {
                 };
             }
             if (item.scheduled_rest === true || item.scheduled_rest === 'true') {
-                if (!isNaN(aid) && appointmentToPetMap[aid]) restScheduledIds.push(aid);
+                if (aid !== null && appointmentToPetMap[aid]) restScheduledIds.push(aid);
             }
         });
     }
@@ -2633,8 +2687,8 @@ function renderReportRestForm(checkinData) {
     const checkinRestMeta = {};
     if (checkinData && Array.isArray(checkinData)) {
         checkinData.forEach(function(item) {
-            const aid = parseInt(item.appointment_id, 10);
-            if (!isNaN(aid)) {
+            const aid = getWorkflowItemId(item);
+            if (aid !== null) {
                 checkinRestMeta[String(aid)] = {
                     rest_required: item.rest_required === true || item.rest_required === 'true' || item
                         .rest_required === 1 || item.rest_required === '1',
@@ -2642,7 +2696,7 @@ function renderReportRestForm(checkinData) {
                 };
             }
             if (item.scheduled_rest === true || item.scheduled_rest === 'true') {
-                if (!isNaN(aid) && appointmentToPetMap[aid]) restScheduledIds.push(aid);
+                if (aid !== null && appointmentToPetMap[aid]) restScheduledIds.push(aid);
             }
         });
     }
@@ -2936,8 +2990,8 @@ $('#save_pet_details_btn').on('click', function() {
         if (lastRestCheckinData && Array.isArray(lastRestCheckinData)) {
             lastRestCheckinData.forEach(function(item) {
                 if (item.scheduled_rest === true || item.scheduled_rest === 'true') {
-                    const aid = parseInt(item.appointment_id, 10);
-                    if (!isNaN(aid) && appointmentToPetMap[aid]) {
+                    const aid = getWorkflowItemId(item);
+                    if (aid !== null && appointmentToPetMap[aid]) {
                         restScheduledIds.push(aid);
                         const checkinRestNote = ((item.rest_note || '') + '').trim();
                         if (!restNotes[aid] && checkinRestNote) restNotes[aid] = checkinRestNote;

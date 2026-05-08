@@ -9,6 +9,7 @@ use App\Models\Service;
 use App\Console\Commands\SendGroupClassReminders;
 use App\Console\Commands\MonitorPetVaccineExpirations;
 use App\Console\Commands\SendBoardingBookingReminders;
+use App\Console\Commands\SendBoardingPreCheckinEmails;
 
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
@@ -47,6 +48,10 @@ Schedule::command(SendGroupClassReminders::class)
 Schedule::command(SendBoardingBookingReminders::class)
     ->timezone('America/New_York')
     ->dailyAt('11:00')
+    ->withoutOverlapping();
+Schedule::command(SendBoardingPreCheckinEmails::class)
+    ->timezone('America/New_York')
+    ->everyMinute()
     ->withoutOverlapping();
 Schedule::command(MonitorPetVaccineExpirations::class)
     ->timezone('America/New_York')

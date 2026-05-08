@@ -127,6 +127,24 @@ class DashboardController extends Controller
             } else {
                 $appointment->total_price = $appointment->estimated_price ?? 0;
             }
+
+            $familyPets = $appointment->familyPets ?? collect();
+            if ($familyPets->isEmpty() && $appointment->pet) {
+                $familyPets = collect([$appointment->pet]);
+            }
+
+            $appointment->display_pets = $familyPets->map(function ($pet) {
+                return [
+                    'id' => $pet->id,
+                    'name' => $pet->name,
+                    'pet_img' => $pet->pet_img,
+                ];
+            })->values();
+
+            $petNames = $familyPets->pluck('name')->filter()->values();
+            $appointment->display_pet_names = $petNames->isNotEmpty()
+                ? $petNames->join(', ')
+                : ($appointment->pet->name ?? 'N/A');
         }
 
         $treatmentListItems = $this->getDashboardTreatmentListItems($today);
@@ -1137,88 +1155,124 @@ class DashboardController extends Controller
                 $flows = json_decode($checkin->flows, true);
             }
 
-            $pet = $appointment->pet;
-            $dryFood = $flows['dry_food'] ?? [];
-            $wetFood = $flows['wet_food'] ?? [];
-            $dryFoodList = is_array($flows['dry_food_list'] ?? null) ? $flows['dry_food_list'] : [];
-            $wetFoodList = is_array($flows['wet_food_list'] ?? null) ? $flows['wet_food_list'] : [];
-            $meds = $flows['meds'] ?? [];
-            $medsList = is_array($flows['meds_list'] ?? null) ? $flows['meds_list'] : [];
-            $lunchDry = ! empty($dryFood['dispense_lunch']) && ($dryFood['dispense_lunch'] === true || $dryFood['dispense_lunch'] === 'true');
-            $lunchWet = ! empty($wetFood['dispense_lunch']) && ($wetFood['dispense_lunch'] === true || $wetFood['dispense_lunch'] === 'true');
+            if (!is_array($flows)) {
+                $flows = [];
+            }
 
-            if (! $lunchDry && ! empty($dryFoodList)) {
-                foreach ($dryFoodList as $foodItem) {
-                    if (! is_array($foodItem)) {
-                        continue;
-                    }
+            $pets = $appointment->familyPets ?? collect();
+            if ($pets->isEmpty() && $appointment->pet) {
+                $pets = collect([$appointment->pet]);
+            }
 
-                    if (! empty($foodItem['dispense_lunch']) && ($foodItem['dispense_lunch'] === true || $foodItem['dispense_lunch'] === 'true')) {
-                        $lunchDry = true;
-                        break;
+            if ($pets->isEmpty()) {
+                continue;
+            }
+
+            $isFamilyAppointment = $pets->count() > 1;
+            $petSpecific = isset($flows['pet_specific']) && is_array($flows['pet_specific']) ? $flows['pet_specific'] : [];
+
+            foreach ($pets as $pet) {
+                if (!$pet) {
+                    continue;
+                }
+
+                $petIdKey = (string) $pet->id;
+                $petFlow = $petSpecific[$petIdKey] ?? ($petSpecific[$pet->id] ?? []);
+                if (!is_array($petFlow)) {
+                    $petFlow = [];
+                }
+
+                $effectiveFlows = array_merge($flows, $petFlow);
+                unset($effectiveFlows['pet_specific']);
+
+                $dryFood = $effectiveFlows['dry_food'] ?? [];
+                $wetFood = $effectiveFlows['wet_food'] ?? [];
+                $dryFoodList = is_array($effectiveFlows['dry_food_list'] ?? null) ? $effectiveFlows['dry_food_list'] : [];
+                $wetFoodList = is_array($effectiveFlows['wet_food_list'] ?? null) ? $effectiveFlows['wet_food_list'] : [];
+                $meds = $effectiveFlows['meds'] ?? [];
+                $medsList = is_array($effectiveFlows['meds_list'] ?? null) ? $effectiveFlows['meds_list'] : [];
+
+                $lunchDry = ! empty($dryFood['dispense_lunch']) && ($dryFood['dispense_lunch'] === true || $dryFood['dispense_lunch'] === 'true');
+                $lunchWet = ! empty($wetFood['dispense_lunch']) && ($wetFood['dispense_lunch'] === true || $wetFood['dispense_lunch'] === 'true');
+
+                if (! $lunchDry && ! empty($dryFoodList)) {
+                    foreach ($dryFoodList as $foodItem) {
+                        if (! is_array($foodItem)) {
+                            continue;
+                        }
+
+                        if (! empty($foodItem['dispense_lunch']) && ($foodItem['dispense_lunch'] === true || $foodItem['dispense_lunch'] === 'true')) {
+                            $lunchDry = true;
+                            break;
+                        }
                     }
                 }
-            }
 
-            if (! $lunchWet && ! empty($wetFoodList)) {
-                foreach ($wetFoodList as $foodItem) {
-                    if (! is_array($foodItem)) {
-                        continue;
-                    }
+                if (! $lunchWet && ! empty($wetFoodList)) {
+                    foreach ($wetFoodList as $foodItem) {
+                        if (! is_array($foodItem)) {
+                            continue;
+                        }
 
-                    if (! empty($foodItem['dispense_lunch']) && ($foodItem['dispense_lunch'] === true || $foodItem['dispense_lunch'] === 'true')) {
-                        $lunchWet = true;
-                        break;
-                    }
-                }
-            }
-
-            if (! empty($flows['scheduled_lunch']) && ($flows['scheduled_lunch'] === true || $flows['scheduled_lunch'] === 'true') && ! $lunchDry && ! $lunchWet) {
-                $lunchDry = true;
-                $lunchWet = true;
-            }
-            $scheduledRest = ! empty($meds['dispense_rest']) && ($meds['dispense_rest'] === true || $meds['dispense_rest'] === 'true');
-            if (! $scheduledRest && ! empty($medsList)) {
-                foreach ($medsList as $medicationItem) {
-                    if (! is_array($medicationItem)) {
-                        continue;
-                    }
-
-                    $itemHasRest =
-                        (!empty($medicationItem['dispense_rest']) && ($medicationItem['dispense_rest'] === true || $medicationItem['dispense_rest'] === 'true')) ||
-                        (!empty($medicationItem['dispense_before_bed']) && ($medicationItem['dispense_before_bed'] === true || $medicationItem['dispense_before_bed'] === 'true'));
-                    $condition = $medicationItem['condition'] ?? null;
-
-                    if ($itemHasRest || $condition === 'before_sleep') {
-                        $scheduledRest = true;
-                        break;
+                        if (! empty($foodItem['dispense_lunch']) && ($foodItem['dispense_lunch'] === true || $foodItem['dispense_lunch'] === 'true')) {
+                            $lunchWet = true;
+                            break;
+                        }
                     }
                 }
-            }
 
-            if (! $scheduledRest && ! empty($flows['rest_required']) && ($flows['rest_required'] === true || $flows['rest_required'] === 'true' || $flows['rest_required'] === 1 || $flows['rest_required'] === '1')) {
-                $scheduledRest = true;
-            }
+                if (! empty($effectiveFlows['scheduled_lunch']) && ($effectiveFlows['scheduled_lunch'] === true || $effectiveFlows['scheduled_lunch'] === 'true') && ! $lunchDry && ! $lunchWet) {
+                    $lunchDry = true;
+                    $lunchWet = true;
+                }
 
-            $data[] = [
-                'appointment_id' => $appointmentId,
-                'pet_name' => $pet ? $pet->name : 'N/A',
-                'pet_img' => $pet ? $pet->pet_img : null,
-                'lunch_dry' => $lunchDry,
-                'lunch_wet' => $lunchWet,
-                'scheduled_rest' => $scheduledRest,
-                'rest_required' => ! empty($flows['rest_required']) && ($flows['rest_required'] === true || $flows['rest_required'] === 'true' || $flows['rest_required'] === 1 || $flows['rest_required'] === '1'),
-                'rest_note' => isset($flows['rest_note']) ? (string) $flows['rest_note'] : '',
-                'customer_name' => $appointment->customer && $appointment->customer->profile
-                    ? $appointment->customer->profile->first_name . ' ' . $appointment->customer->profile->last_name
-                    : 'N/A',
-                'customer_avatar' => $appointment->customer && $appointment->customer->profile
-                    ? $appointment->customer->profile->avatar_img : null,
-                'checkin' => [
-                    'id' => $checkin ? $checkin->id : null,
-                    'flows' => $flows
-                ]
-            ];
+                $scheduledRest = ! empty($meds['dispense_rest']) && ($meds['dispense_rest'] === true || $meds['dispense_rest'] === 'true');
+                if (! $scheduledRest && ! empty($medsList)) {
+                    foreach ($medsList as $medicationItem) {
+                        if (! is_array($medicationItem)) {
+                            continue;
+                        }
+
+                        $itemHasRest =
+                            (!empty($medicationItem['dispense_rest']) && ($medicationItem['dispense_rest'] === true || $medicationItem['dispense_rest'] === 'true')) ||
+                            (!empty($medicationItem['dispense_before_bed']) && ($medicationItem['dispense_before_bed'] === true || $medicationItem['dispense_before_bed'] === 'true'));
+                        $condition = $medicationItem['condition'] ?? null;
+
+                        if ($itemHasRest || $condition === 'before_sleep') {
+                            $scheduledRest = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (! $scheduledRest && ! empty($effectiveFlows['rest_required']) && ($effectiveFlows['rest_required'] === true || $effectiveFlows['rest_required'] === 'true' || $effectiveFlows['rest_required'] === 1 || $effectiveFlows['rest_required'] === '1')) {
+                    $scheduledRest = true;
+                }
+
+                $workflowId = $isFamilyAppointment ? (int) $pet->id : (int) $appointmentId;
+
+                $data[] = [
+                    'workflow_id' => $workflowId,
+                    'appointment_id' => (int) $appointmentId,
+                    'pet_id' => (int) $pet->id,
+                    'pet_name' => $pet->name ?? 'N/A',
+                    'pet_img' => $pet->pet_img ?? null,
+                    'lunch_dry' => $lunchDry,
+                    'lunch_wet' => $lunchWet,
+                    'scheduled_rest' => $scheduledRest,
+                    'rest_required' => ! empty($effectiveFlows['rest_required']) && ($effectiveFlows['rest_required'] === true || $effectiveFlows['rest_required'] === 'true' || $effectiveFlows['rest_required'] === 1 || $effectiveFlows['rest_required'] === '1'),
+                    'rest_note' => isset($effectiveFlows['rest_note']) ? (string) $effectiveFlows['rest_note'] : '',
+                    'customer_name' => $appointment->customer && $appointment->customer->profile
+                        ? $appointment->customer->profile->first_name . ' ' . $appointment->customer->profile->last_name
+                        : 'N/A',
+                    'customer_avatar' => $appointment->customer && $appointment->customer->profile
+                        ? $appointment->customer->profile->avatar_img : null,
+                    'checkin' => [
+                        'id' => $checkin ? $checkin->id : null,
+                        'flows' => $effectiveFlows
+                    ]
+                ];
+            }
         }
 
         return response()->json([
@@ -1233,11 +1287,14 @@ class DashboardController extends Controller
             'date' => 'required|date',
             'appointment_ids' => 'nullable|array',
             'appointment_ids.*' => 'exists:appointments,id',
+            'workflow_ids' => 'nullable|array',
+            'workflow_ids.*' => 'integer',
         ]);
 
         $date = Carbon::parse($request->input('date'));
         $yesterday = $date->copy()->subDay()->format('Y-m-d');
         $appointmentIds = $request->input('appointment_ids', []);
+        $workflowIds = $request->input('workflow_ids', []);
 
         $process = Process::where('date', $yesterday)->first();
         if (!$process || !$process->flows) {
@@ -1262,9 +1319,58 @@ class DashboardController extends Controller
         $reportsPmIds = isset($reportsPm['selected_pet_ids']) && is_array($reportsPm['selected_pet_ids'])
             ? array_map('intval', $reportsPm['selected_pet_ids']) : [];
         $selectedIds = array_values(array_unique(array_merge($selectedIds, $reportsPmIds)));
+
+        if (!empty($workflowIds)) {
+            $selectedWorkflowIds = array_values(array_unique(array_map('intval', (array) $workflowIds)));
+            $selectedWorkflowSet = array_flip($selectedWorkflowIds);
+            $legacySelectedSet = array_flip($selectedIds);
+            $mappedWorkflowIds = [];
+
+            if (!empty($appointmentIds)) {
+                $appointments = Appointment::with('pet')->whereIn('id', array_map('intval', (array) $appointmentIds))->get();
+
+                foreach ($appointments as $appointment) {
+                    $familyPets = $appointment->familyPets ?? collect();
+                    if ($familyPets->isEmpty() && $appointment->pet) {
+                        $familyPets = collect([$appointment->pet]);
+                    }
+
+                    if ($familyPets->count() > 1) {
+                        $hasLegacyAppointmentSelection = isset($legacySelectedSet[(int) $appointment->id]);
+
+                        foreach ($familyPets as $pet) {
+                            if (!$pet) {
+                                continue;
+                            }
+
+                            $petId = (int) $pet->id;
+                            $matchesWorkflowSelection = isset($selectedWorkflowSet[$petId]);
+                            $matchesLegacySelection = isset($legacySelectedSet[$petId]) || $hasLegacyAppointmentSelection;
+
+                            if ($matchesWorkflowSelection && $matchesLegacySelection) {
+                                $mappedWorkflowIds[] = $petId;
+                            }
+                        }
+                    } elseif (isset($selectedWorkflowSet[(int) $appointment->id])) {
+                        $mappedWorkflowIds[] = (int) $appointment->id;
+                    }
+                }
+            }
+
+            foreach ($selectedIds as $selectedId) {
+                if (isset($selectedWorkflowSet[(int) $selectedId])) {
+                    $mappedWorkflowIds[] = (int) $selectedId;
+                }
+            }
+
+            $selectedIds = array_values(array_unique($mappedWorkflowIds));
+        }
+
         if (!empty($appointmentIds)) {
             $appointmentIdsInt = array_map('intval', (array) $appointmentIds);
-            $selectedIds = array_values(array_intersect($selectedIds, $appointmentIdsInt));
+            if (empty($workflowIds)) {
+                $selectedIds = array_values(array_intersect($selectedIds, $appointmentIdsInt));
+            }
         }
 
         $yesterdayReportsPmIssues = isset($reportsPm['issues']) && is_array($reportsPm['issues'])
