@@ -2625,6 +2625,91 @@
                 </fieldset>
               </div>
               @endif
+              @if(!empty($staySummary['has_data']))
+              <div class="mt-4">
+                <fieldset class="fieldset">
+                  <legend class="fieldset-legend">Summary of Stay</legend>
+                  <div class="space-y-3">
+                    @foreach(($staySummary['pets'] ?? []) as $petSummary)
+                      @if(!empty($petSummary['has_data']))
+                      <div class="rounded-box border border-base-300 p-3">
+                        @if(($staySummary['pet_count'] ?? 1) > 1)
+                          <p class="font-medium">{{ $petSummary['pet_name'] ?? 'Pet' }}</p>
+                        @endif
+                        <div class="mt-2 space-y-2">
+                          @if(!empty($petSummary['dnes']))
+                          <div>
+                            <p class="font-medium text-sm">DNEs</p>
+                            <ul class="list-disc ms-4 text-sm text-base-content/80 space-y-1">
+                              @foreach($petSummary['dnes'] as $item)
+                                <li>{{ $item }}</li>
+                              @endforeach
+                            </ul>
+                          </div>
+                          @endif
+
+                          @if(!empty($petSummary['nose_to_tail']))
+                          <div>
+                            <p class="font-medium text-sm">Nose-to-tail issues</p>
+                            <ul class="list-disc ms-4 text-sm text-base-content/80 space-y-1">
+                              @foreach($petSummary['nose_to_tail'] as $item)
+                                <li>{{ $item }}</li>
+                              @endforeach
+                            </ul>
+                          </div>
+                          @endif
+
+                          @if(!empty($petSummary['treatments']))
+                          <div>
+                            <p class="font-medium text-sm">Treatments</p>
+                            <ul class="list-disc ms-4 text-sm text-base-content/80 space-y-1">
+                              @foreach($petSummary['treatments'] as $item)
+                                <li>{{ $item }}</li>
+                              @endforeach
+                            </ul>
+                          </div>
+                          @endif
+
+                          @if(!empty($petSummary['incidents']))
+                          <div>
+                            <p class="font-medium text-sm">Incidents</p>
+                            <ul class="list-disc ms-4 text-sm text-base-content/80 space-y-1">
+                              @foreach($petSummary['incidents'] as $item)
+                                <li>{{ $item }}</li>
+                              @endforeach
+                            </ul>
+                          </div>
+                          @endif
+
+                          @if(!empty($petSummary['behavior']))
+                          <div>
+                            <p class="font-medium text-sm">Behavior</p>
+                            <ul class="list-disc ms-4 text-sm text-base-content/80 space-y-1">
+                              @foreach($petSummary['behavior'] as $item)
+                                <li>{{ $item }}</li>
+                              @endforeach
+                            </ul>
+                          </div>
+                          @endif
+
+                          @if(!empty($petSummary['notes']))
+                          <div>
+                            <p class="font-medium text-sm">Notes</p>
+                            <ul class="list-disc ms-4 text-sm text-base-content/80 space-y-1">
+                              @foreach($petSummary['notes'] as $item)
+                                <li>{{ $item }}</li>
+                              @endforeach
+                            </ul>
+                          </div>
+                          @endif
+                        </div>
+                      </div>
+                      @endif
+                    @endforeach
+                  </div>
+                </fieldset>
+              </div>
+              @endif
               <div class="mt-4">
                 <fieldset class="fieldset">
                   <legend class="fieldset-legend">Notes</legend>

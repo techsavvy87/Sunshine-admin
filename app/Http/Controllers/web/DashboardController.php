@@ -22,6 +22,7 @@ use App\Models\Discount;
 use App\Models\PetBehavior;
 use App\Models\IncidentReport;
 use App\Models\Kennel;
+use Illuminate\Support\Collection;
 use Carbon\Carbon;
 use Barryvdh\DomPDF\Facade\Pdf;
 
@@ -568,8 +569,447 @@ class DashboardController extends Controller
         $petBehaviors = PetBehavior::with('icon')->orderBy('description')->get();
         $assignmentLocation = $this->getAppointmentAssignmentLocation($appointment);
         $assignmentLabel = $assignmentLocation['label'];
+        $staySummary = $this->buildCheckoutStaySummary($appointment, $checkedIn);
 
-        return view('dashboard.appointment', compact('appointment', 'staffs', 'checkedIn', 'process', 'checkout', 'invoice', 'additionalServices', 'lastAppointmentRatings', 'invoiceDiscountRules', 'petBehaviors', 'dbEstimatedPrice', 'assignmentLabel'));
+        return view('dashboard.appointment', compact('appointment', 'staffs', 'checkedIn', 'process', 'checkout', 'invoice', 'additionalServices', 'lastAppointmentRatings', 'invoiceDiscountRules', 'petBehaviors', 'dbEstimatedPrice', 'assignmentLabel', 'staySummary'));
+    }
+
+    private function buildCheckoutStaySummary(Appointment $appointment, ?Checkin $checkin): array
+    {
+        $pets = $appointment->family_pets;
+        if ($pets->isEmpty() && $appointment->pet) {
+            $pets = collect([$appointment->pet]);
+        }
+
+        if ($pets->isEmpty()) {
+            return [
+                'has_data' => false,
+                'pet_count' => 0,
+                'pets' => [],
+            ];
+        }
+
+        $isFamilyAppointment = $pets->count() > 1;
+        $checkinFlows = $this->decodeDashboardJsonToArray(optional($checkin)->flows);
+        $petSpecificFlows = isset($checkinFlows['pet_specific']) && is_array($checkinFlows['pet_specific'])
+            ? $checkinFlows['pet_specific']
+            : [];
+
+        $processes = Process::where('appointment_id', $appointment->id)
+            ->orderBy('date')
+            ->orderBy('updated_at')
+            ->get();
+
+        $decodedProcessFlows = $processes->map(function (Process $process) {
+            return [
+                'date' => $process->date,
+                'notes' => trim((string) ($process->notes ?? '')),
+                'flows' => $this->decodeDashboardJsonToArray($process->flows),
+            ];
+        });
+
+        $incidentQuery = IncidentReport::where('service_id', $appointment->service_id)
+            ->where(function ($query) use ($appointment, $pets) {
+                $query->whereRaw('FIND_IN_SET(?, appointment_ids)', [(string) $appointment->id]);
+
+                foreach ($pets as $pet) {
+                    if (!empty($pet?->id)) {
+                        $query->orWhereRaw('FIND_IN_SET(?, pet_ids)', [(string) $pet->id]);
+                    }
+                }
+            });
+
+        if (!empty($appointment->date)) {
+            $rangeStart = Carbon::parse($appointment->date)->startOfDay();
+            $rangeEnd = !empty($appointment->end_date)
+                ? Carbon::parse($appointment->end_date)->endOfDay()
+                : Carbon::parse($appointment->date)->endOfDay();
+
+            $incidentQuery->whereBetween('created_at', [$rangeStart, $rangeEnd]);
+        }
+
+        $incidents = $incidentQuery
+            ->orderByDesc('created_at')
+            ->get();
+
+        $behaviorIds = $pets->flatMap(function ($pet) {
+            return $this->normalizeStaySummaryIds($pet->pet_behavior_id ?? []);
+        })->unique()->values();
+
+        $behaviorMap = $behaviorIds->isNotEmpty()
+            ? PetBehavior::whereIn('id', $behaviorIds->all())->pluck('description', 'id')
+            : collect();
+
+        $petSummaries = $pets->map(function ($pet) use (
+            $appointment,
+            $isFamilyAppointment,
+            $checkin,
+            $checkinFlows,
+            $petSpecificFlows,
+            $decodedProcessFlows,
+            $incidents,
+            $behaviorMap
+        ) {
+            $petId = (int) ($pet->id ?? 0);
+            $appointmentId = (int) $appointment->id;
+
+            $workflowCandidates = collect([
+                $isFamilyAppointment ? $petId : $appointmentId,
+                $appointmentId,
+                $petId,
+            ])
+                ->filter(fn ($id) => $id > 0)
+                ->unique()
+                ->values()
+                ->all();
+
+            $petIdKey = (string) $petId;
+            $petFlowOverrides = $petSpecificFlows[$petIdKey] ?? ($petSpecificFlows[$petId] ?? []);
+            if (!is_array($petFlowOverrides)) {
+                $petFlowOverrides = [];
+            }
+
+            $effectiveCheckinFlows = array_merge($checkinFlows, $petFlowOverrides);
+            unset($effectiveCheckinFlows['pet_specific'], $effectiveCheckinFlows['pets_care']);
+
+            $dnes = [];
+            $noseToTailIssues = [];
+            $treatments = [];
+            $incidentRows = [];
+            $notes = [];
+
+            if (!empty($checkin?->notes)) {
+                $notes[] = 'Check-in: ' . trim((string) $checkin->notes);
+            }
+
+            foreach (['pet_notes', 'feeding_notes', 'medication_notes', 'rest_note'] as $notesKey) {
+                $value = trim((string) ($effectiveCheckinFlows[$notesKey] ?? ''));
+                if ($value !== '') {
+                    $notes[] = ucfirst(str_replace('_', ' ', $notesKey)) . ': ' . $value;
+                }
+            }
+
+            foreach ($decodedProcessFlows as $processData) {
+                $flows = $processData['flows'] ?? [];
+                if (!is_array($flows)) {
+                    continue;
+                }
+
+                $reportsAm = $flows['reports_am'] ?? [];
+                if ($this->staySummaryStepAppliesToWorkflow($reportsAm, $workflowCandidates)) {
+                    $amIssue = trim((string) $this->staySummaryGetFlowValueForCandidates($reportsAm['issues'] ?? [], $workflowCandidates));
+                    $dnes[] = $amIssue !== '' ? 'Do not eat AM meals - ' . $amIssue : 'Do not eat AM meals';
+                }
+
+                $reportsPm = $flows['reports_pm'] ?? [];
+                if ($this->staySummaryStepAppliesToWorkflow($reportsPm, $workflowCandidates)) {
+                    $pmIssue = trim((string) $this->staySummaryGetFlowValueForCandidates($reportsPm['issues'] ?? [], $workflowCandidates));
+                    $dnes[] = $pmIssue !== '' ? 'Do not eat PM meals - ' . $pmIssue : 'Do not eat PM meals';
+                }
+
+                $checkData = $this->staySummaryGetFlowValueForCandidates(data_get($flows, 'check_pet.check_data', []), $workflowCandidates);
+                if (is_array($checkData)) {
+                    $noseToTailIssues = array_merge($noseToTailIssues, $this->buildStaySummaryNoseToTailIssues($checkData));
+                }
+
+                $treatmentPlanData = $this->staySummaryGetFlowValueForCandidates(data_get($flows, 'treatment_plan.treatment_data', []), $workflowCandidates);
+                if (is_array($treatmentPlanData)) {
+                    $treatmentPlanText = $this->buildStaySummaryTreatmentText($treatmentPlanData);
+                    if ($treatmentPlanText !== '') {
+                        $treatments[] = $treatmentPlanText;
+                    }
+                }
+
+                $treatmentResult = $this->staySummaryGetFlowValueForCandidates(data_get($flows, 'treatments_tlr.results', []), $workflowCandidates);
+                if (is_array($treatmentResult)) {
+                    $resultValue = strtolower(trim((string) ($treatmentResult['result'] ?? '')));
+                    $resultLabel = match ($resultValue) {
+                        'continue' => 'Continue',
+                        'resolved' => 'Resolved',
+                        'escalate' => 'Escalate',
+                        default => '',
+                    };
+                    $resultDetail = trim((string) ($treatmentResult['detail'] ?? ''));
+                    if ($resultLabel !== '' || $resultDetail !== '') {
+                        $treatments[] = trim('Outcome: ' . $resultLabel . ($resultDetail !== '' ? ' - ' . $resultDetail : ''));
+                    }
+                }
+
+                $treatmentIssues = $flows['treatment_issues'] ?? [];
+                if (is_array($treatmentIssues)) {
+                    foreach ($treatmentIssues as $issue) {
+                        if (!is_array($issue)) {
+                            continue;
+                        }
+                        $inHouse = trim((string) ($issue['inhouse_treatment'] ?? ''));
+                        $vet = trim((string) ($issue['vet_treatment'] ?? ''));
+                        if ($inHouse !== '') {
+                            $treatments[] = 'In-house: ' . $inHouse;
+                        }
+                        if ($vet !== '') {
+                            $treatments[] = 'Vet: ' . $vet;
+                        }
+                    }
+                }
+
+                if (!empty($processData['notes'])) {
+                    $processDate = trim((string) ($processData['date'] ?? ''));
+                    $label = $processDate !== '' ? 'Process (' . $processDate . ')' : 'Process';
+                    $notes[] = $label . ': ' . $processData['notes'];
+                }
+            }
+
+            foreach ($incidents as $incident) {
+                $incidentPetIds = $this->normalizeStaySummaryIds($incident->pet_ids ?? []);
+                $incidentAppointmentIds = $this->normalizeStaySummaryIds($incident->appointment_ids ?? []);
+
+                $matchesPet = in_array($petId, $incidentPetIds, true);
+                $matchesAppointment = !$matchesPet
+                    && in_array($appointmentId, $incidentAppointmentIds, true)
+                    && count($incidentPetIds) === 0;
+
+                if (!$matchesPet && !$matchesAppointment) {
+                    continue;
+                }
+
+                $incidentRows[] = $this->buildStaySummaryIncidentText($incident);
+            }
+
+            $behavior = collect($this->normalizeStaySummaryIds($pet->pet_behavior_id ?? []))
+                ->map(fn ($behaviorId) => trim((string) ($behaviorMap->get($behaviorId) ?? '')))
+                ->filter()
+                ->values()
+                ->all();
+
+            $dnes = collect($dnes)->filter()->unique()->values()->all();
+            $noseToTailIssues = collect($noseToTailIssues)->filter()->unique()->values()->all();
+            $treatments = collect($treatments)->filter()->unique()->values()->all();
+            $incidentRows = collect($incidentRows)->filter()->unique()->values()->all();
+            $notes = collect($notes)->filter()->unique()->values()->all();
+
+            $hasData = !empty($dnes)
+                || !empty($noseToTailIssues)
+                || !empty($treatments)
+                || !empty($incidentRows)
+                || !empty($behavior)
+                || !empty($notes);
+
+            return [
+                'pet_id' => $petId,
+                'pet_name' => $pet->name ?? 'Pet',
+                'dnes' => $dnes,
+                'nose_to_tail' => $noseToTailIssues,
+                'treatments' => $treatments,
+                'incidents' => $incidentRows,
+                'behavior' => $behavior,
+                'notes' => $notes,
+                'has_data' => $hasData,
+            ];
+        })->values();
+
+        return [
+            'has_data' => $petSummaries->contains(fn ($summary) => !empty($summary['has_data'])),
+            'pet_count' => $pets->count(),
+            'pets' => $petSummaries->all(),
+        ];
+    }
+
+    private function staySummaryStepAppliesToWorkflow($stepData, array $workflowCandidates): bool
+    {
+        if (!is_array($stepData)) {
+            return false;
+        }
+
+        $selectedIds = $this->normalizeStaySummaryIds($stepData['selected_pet_ids'] ?? []);
+        if (empty($selectedIds)) {
+            return true;
+        }
+
+        return collect($workflowCandidates)->intersect($selectedIds)->isNotEmpty();
+    }
+
+    private function staySummaryGetFlowValueForCandidates($value, array $workflowCandidates)
+    {
+        if (!is_array($value)) {
+            return $value;
+        }
+
+        foreach ($workflowCandidates as $candidate) {
+            if (array_key_exists($candidate, $value)) {
+                return $value[$candidate];
+            }
+
+            $candidateKey = (string) $candidate;
+            if (array_key_exists($candidateKey, $value)) {
+                return $value[$candidateKey];
+            }
+        }
+
+        return null;
+    }
+
+    private function buildStaySummaryNoseToTailIssues(array $checkData): array
+    {
+        $bodyPartLabels = [
+            'nose' => 'Nose',
+            'eyes' => 'Eyes',
+            'ears' => 'Ears',
+            'mouth' => 'Mouth',
+            'body_coat' => 'Body/Coat',
+            'paws_feet' => 'Paws/Feet',
+            'abdomen' => 'Abdomen',
+            'digestive' => 'Digestive',
+            'diarrhea' => 'Diarrhea',
+        ];
+
+        $issueFieldMap = [
+            'nose' => ['discharge', 'dryness', 'cracking'],
+            'eyes' => ['redness', 'cloudiness', 'discharge'],
+            'ears' => ['odor', 'redness', 'swelling', 'buildup'],
+            'mouth' => ['bad_breath', 'broken_teeth', 'growths', 'inflammation'],
+            'body_coat' => ['skin_irritation', 'flaky_skin', 'flea_dirt'],
+            'paws_feet' => ['cracked_pads', 'nail_issue', 'nail_bleeding', 'splinter', 'growths', 'injury'],
+            'abdomen' => ['bloating', 'skin_irritation', 'growths', 'fleas_ticks'],
+            'digestive' => ['vomiting', 'dne', 'dpe'],
+            'diarrhea' => ['type_1', 'type_2', 'type_3', 'type_4', 'type_5', 'type_6', 'type_7'],
+        ];
+
+        $issues = [];
+        foreach ($bodyPartLabels as $partKey => $partLabel) {
+            $partData = $checkData[$partKey] ?? null;
+            if (!is_array($partData)) {
+                continue;
+            }
+
+            $status = strtolower(trim((string) ($partData['status'] ?? '')));
+            if ($status !== 'issue') {
+                continue;
+            }
+
+            $details = collect($issueFieldMap[$partKey] ?? [])
+                ->filter(function ($field) use ($partData) {
+                    return ($partData[$field] ?? false) === true || ($partData[$field] ?? false) === 'true';
+                })
+                ->map(function ($field) {
+                    return ucwords(str_replace('_', ' ', $field));
+                })
+                ->values()
+                ->all();
+
+            $issues[] = !empty($details)
+                ? $partLabel . ' (' . implode(', ', $details) . ')'
+                : $partLabel;
+        }
+
+        return $issues;
+    }
+
+    private function buildStaySummaryTreatmentText(array $treatmentPlanData): string
+    {
+        $option = trim((string) ($treatmentPlanData['option'] ?? ''));
+        $optionLabel = match ($option) {
+            'in-house' => 'In-house',
+            'vet-watch' => 'Vet watch',
+            default => $option,
+        };
+
+        $selectedTreatments = $this->extractDashboardTreatmentSelections($treatmentPlanData);
+        $detail = trim((string) ($treatmentPlanData['detail'] ?? $treatmentPlanData['details'] ?? ''));
+
+        $parts = [];
+        if ($optionLabel !== '') {
+            $parts[] = 'Option: ' . $optionLabel;
+        }
+        if (!empty($selectedTreatments)) {
+            $parts[] = 'Treatment: ' . implode(', ', $selectedTreatments);
+        }
+        if ($detail !== '') {
+            $parts[] = 'Detail: ' . $detail;
+        }
+
+        return implode(' - ', $parts);
+    }
+
+    private function buildStaySummaryIncidentText(IncidentReport $incident): string
+    {
+        $parts = [];
+
+        $injuryType = trim((string) ($incident->injury_type ?? ''));
+        if ($injuryType !== '') {
+            $parts[] = 'Injury: ' . ucwords(str_replace('_', ' ', $injuryType));
+        }
+
+        $injuryLocation = trim((string) ($incident->injury_location ?? ''));
+        if ($injuryLocation !== '') {
+            $parts[] = 'Location: ' . $injuryLocation;
+        }
+
+        $description = trim((string) ($incident->incident_description ?? ''));
+        if ($description !== '') {
+            $parts[] = 'Description: ' . $description;
+        }
+
+        $conclusion = trim((string) ($incident->conclusion ?? ''));
+        if ($conclusion !== '') {
+            $parts[] = 'Conclusion: ' . $conclusion;
+        }
+
+        return !empty($parts)
+            ? implode(' - ', $parts)
+            : 'Incident report #' . $incident->id;
+    }
+
+    private function normalizeStaySummaryIds($raw): array
+    {
+        if ($raw instanceof Collection) {
+            $raw = $raw->all();
+        }
+
+        if (is_string($raw)) {
+            $trimmedRaw = trim($raw);
+            if ($trimmedRaw === '') {
+                return [];
+            }
+
+            $decoded = json_decode($trimmedRaw, true);
+            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                $raw = $decoded;
+            } else {
+                $raw = explode(',', $trimmedRaw);
+            }
+        }
+
+        if (!is_array($raw)) {
+            $raw = [$raw];
+        }
+
+        return collect($raw)
+            ->map(function ($value) {
+                if (is_array($value)) {
+                    return $value['id'] ?? null;
+                }
+
+                return $value;
+            })
+            ->map(fn ($value) => (int) $value)
+            ->filter(fn ($value) => $value > 0)
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    private function decodeDashboardJsonToArray($value): array
+    {
+        if (is_array($value)) {
+            return $value;
+        }
+
+        if (!is_string($value) || trim($value) === '') {
+            return [];
+        }
+
+        $decodedValue = json_decode($value, true);
+        return is_array($decodedValue) ? $decodedValue : [];
     }
 
     public function listDashboard(Request $request, $id)
