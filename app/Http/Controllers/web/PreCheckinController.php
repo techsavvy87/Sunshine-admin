@@ -246,7 +246,12 @@ class PreCheckinController extends Controller
 
             $normalized[(string) $petId] = [
                 'other_items_description' => $this->nullableTrim($petData['other_items_description'] ?? null),
-                'flea_tick' => filter_var($petData['flea_tick'] ?? false, FILTER_VALIDATE_BOOL),
+                'flea_tick_prevention' => in_array(($petData['flea_tick_prevention'] ?? null), ['yes', 'no'], true)
+                    ? $petData['flea_tick_prevention']
+                    : null,
+                'flea_tick_prevention_type' => ($petData['flea_tick_prevention'] ?? null) === 'yes'
+                    ? $this->nullableTrim($petData['flea_tick_prevention_type'] ?? null)
+                    : null,
                 'dry_food_list' => $dryFoodList,
                 'wet_food_list' => $wetFoodList,
                 'meds_list' => $medsList,
@@ -313,11 +318,12 @@ class PreCheckinController extends Controller
             $dispensePm = !empty($row['dispense_pm']);
             $dispenseRest = !empty($row['dispense_rest']);
             $dispenseBeforeBed = !empty($row['dispense_before_bed']);
+            $dispensePrn = !empty($row['dispense_prn']);
             $dispenseCustomTime = !empty($row['dispense_custom_time']);
             $customTime = $this->nullableTrim($row['custom_time'] ?? null);
             $mealCondition = $this->nullableTrim($row['meal_condition'] ?? null);
 
-            if (!$name && !$amount && !$dispenseAm && !$dispensePm && !$dispenseRest && !$dispenseBeforeBed && !$dispenseCustomTime && !$customTime && !$mealCondition) {
+            if (!$name && !$amount && !$dispenseAm && !$dispensePm && !$dispenseRest && !$dispenseBeforeBed && !$dispensePrn && !$dispenseCustomTime && !$customTime && !$mealCondition) {
                 continue;
             }
 
@@ -328,6 +334,7 @@ class PreCheckinController extends Controller
                 'dispense_pm' => $dispensePm,
                 'dispense_rest' => $dispenseRest,
                 'dispense_before_bed' => $dispenseBeforeBed,
+                'dispense_prn' => $dispensePrn,
                 'dispense_custom_time' => $dispenseCustomTime,
                 'custom_time' => $customTime,
                 'meal_condition' => $mealCondition,

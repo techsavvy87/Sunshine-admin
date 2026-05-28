@@ -96,18 +96,12 @@
       overflow-y: auto;
     }
 
-    .filepond--root {
-      overflow: hidden !important;
-      max-height: 250px;
-    }
-
     .select2-container {
       width: 100% !important;
-      touch-action: auto !important;
     }
 
     .select2-dropdown {
-      z-index: 99999 !important;
+      z-index: 9999 !important;
     }
 
     .select2-results__options {
@@ -1890,7 +1884,7 @@
           },
           processResults: function (data) {
             return {
-              results: data.map(function (owner) {
+              results: data.items.map(function (owner) {
                 return {
                   id: owner.id,
                   text: `${owner.profile.first_name} ${owner.profile.last_name} (${owner.email} | ${owner.profile.phone_number_1})`,

@@ -30,6 +30,28 @@
       transition: all 0.2s;
       box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
     }
+    .workflow-tabs {
+      display: flex;
+      flex-wrap: nowrap;
+      gap: 0.75rem;
+      overflow-x: auto;
+    }
+    .workflow-tabs .workflow-tab {
+      flex: 0 0 calc((100% - 3.75rem) / 6);
+      min-width: 10.5rem;
+    }
+    .workflow-tabs .workflow-tab .card-body > div:last-child {
+      width: 100%;
+      justify-content: center;
+    }
+    @media (min-width: 1280px) {
+      .workflow-tabs {
+        overflow-x: visible;
+      }
+      .workflow-tabs .workflow-tab {
+        min-width: 0;
+      }
+    }
     .workflow-tab.active {
       background-color: color-mix(in oklab, var(--color-primary) 5%, transparent);
       border: 1px solid hsl(var(--p) / 0.1);
@@ -92,9 +114,9 @@
           <div class="col-span-1 xl:col-span-2 2xl:col-span-3">
 
             {{-- Tabs Section (replacing cloud storage cards) --}}
-            <div class="grid gap-6 md:grid-cols-2 2xl:grid-cols-5 mb-6">
-              <div class="workflow-tab card bg-base-100 cursor-pointer shadow transition-all hover:shadow-md active" data-tab="am-feeding-meds">
-                <div class="card-body p-4">
+            <div class="workflow-tabs mb-6">
+              <div class="workflow-tab card bg-base-100 cursor-pointer shadow transition-all hover:shadow-md" data-tab="am-feeding-meds">
+                <div class="card-body p-4 items-center text-center">
                   <div class="bg-base-200 rounded-box size-12 flex items-center justify-center mb-2" style="width: 2.5rem; height: 2.5rem;">
                     <span class="iconify lucide--sun text-primary size-6"></span>
                   </div>
@@ -104,7 +126,7 @@
                 </div>
               </div>
               <div class="workflow-tab card bg-base-100 cursor-pointer shadow transition-all hover:shadow-md" data-tab="nose-to-tail">
-                <div class="card-body p-4">
+                <div class="card-body p-4 items-center text-center">
                   <div class="bg-base-200 rounded-box size-12 flex items-center justify-center mb-2" style="width: 2.5rem; height: 2.5rem;">
                     <span class="iconify lucide--search text-success size-6"></span>
                   </div>
@@ -114,7 +136,7 @@
                 </div>
               </div>
               <div class="workflow-tab card bg-base-100 cursor-pointer shadow transition-all hover:shadow-md" data-tab="treatment-lunch-rest">
-                <div class="card-body p-4">
+                <div class="card-body p-4 items-center text-center">
                   <div class="bg-base-200 rounded-box size-12 flex items-center justify-center mb-2" style="width: 2.5rem; height: 2.5rem;">
                     <span class="iconify lucide--heart text-warning size-6"></span>
                   </div>
@@ -124,7 +146,7 @@
                 </div>
               </div>
               <div class="workflow-tab card bg-base-100 cursor-pointer shadow transition-all hover:shadow-md" data-tab="pm-feeding-meds">
-                <div class="card-body p-4">
+                <div class="card-body p-4 items-center text-center">
                   <div class="bg-base-200 rounded-box size-12 flex items-center justify-center mb-2" style="width: 2.5rem; height: 2.5rem;">
                     <span class="iconify lucide--moon text-info size-6"></span>
                   </div>
@@ -133,8 +155,30 @@
                   </div>
                 </div>
               </div>
+              <div class="workflow-tab card bg-base-100 cursor-pointer shadow transition-all hover:shadow-md" data-tab="prn">
+                <div class="card-body p-4 items-center text-center">
+                  <div class="bg-base-200 rounded-box size-12 flex items-center justify-center mb-2" style="width: 2.5rem; height: 2.5rem;">
+                    <svg xmlns="http://www.w3.org/2000/svg"
+                        width="24"
+                        height="24"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="#f31260"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        class="lucide lucide-pill-icon lucide-pill">
+                      <path d="m10.5 20.5 10-10a4.95 4.95 0 1 0-7-7l-10 10a4.95 4.95 0 1 0 7 7Z"/>
+                      <path d="m8.5 8.5 7 7"/>
+                    </svg>
+                  </div>
+                  <div class="flex items-center justify-between">
+                    <p class="text-sm font-medium">PRN Meds</p>
+                  </div>
+                </div>
+              </div>
               <div class="workflow-tab card bg-base-100 cursor-pointer shadow transition-all hover:shadow-md" data-tab="reports">
-                <div class="card-body p-4">
+                <div class="card-body p-4 items-center text-center">
                   <div class="bg-base-200 rounded-box size-12 flex items-center justify-center mb-2" style="width: 2.5rem; height: 2.5rem;">
                     <span class="iconify lucide--file-text text-secondary size-6"></span>
                   </div>
@@ -231,6 +275,13 @@
                         <tbody id="treatment_lunch_rest_tbody">
                           {{-- Rows set by JS per step --}}
                         </tbody>
+                      </table>
+                    </div>
+                    {{-- PRN Meds Form Table --}}
+                    <div id="prn_form_container" class="p-4 overflow-auto" style="display: none;">
+                      <table class="table" id="prn_table">
+                        <thead id="prn_thead"></thead>
+                        <tbody id="prn_tbody"></tbody>
                       </table>
                     </div>
                     {{-- End of Day: report tables (loaded via AJAX) --}}
@@ -349,7 +400,6 @@
   let lastLunchCheckinData = null;
   let lastRestCheckinData = null;
   let checkinRestMetaByAppointmentId = {};
-  let checkinFleaTickByWorkflowId = {};
   let isLoadingCheckinRestMeta = false;
   let yesterdayNextDayPetIds = [];
   let yesterdayReportsPmIssues = {};
@@ -391,9 +441,6 @@
         is_assigned: restRequired || scheduledRest,
         rest_note: ((item.rest_note || '') + '').trim()
       };
-
-      const fleaTick = item && item.checkin && item.checkin.flows ? item.checkin.flows.flea_tick : null;
-      checkinFleaTickByWorkflowId[String(workflowId)] = isTruthyBoardingValue(fleaTick);
     });
   }
 
@@ -451,12 +498,16 @@
       { id: 'meds_dispense_pm', name: 'Meds Dispense (PM)', icon: 'lucide--check' },
       { id: 'reports_pm', name: 'Reports', icon: 'lucide--file-text' }
     ],
+    'prn': [
+      { id: 'prn_meds', name: 'PRN Meds', icon: 'lucide--heart-pulse' }
+    ],
     'reports': [
       { id: 'dne_list_am', name: 'DNE list (AM)', icon: 'lucide--ban' },
       { id: 'treatment_concern', name: 'Nose to Tail Issues/Concerns', icon: 'lucide--check' },
       { id: 'report_lunch', name: 'Lunch', icon: 'lucide--book-open-text' },
       { id: 'report_rest', name: 'Rest', icon: 'lucide--moon' },
       { id: 'dne_list_pm', name: 'DNE list (PM)', icon: 'lucide--ban' },
+      { id: 'report_prn', name: 'PRN', icon: 'lucide--heart-pulse' },
       { id: 'end_of_day', name: 'End of Day', icon: 'lucide--file-text' }
     ]
   };
@@ -546,7 +597,7 @@
     $('.workflow-tab').removeClass('active');
     $(this).addClass('active');
     currentTab = $(this).data('tab');
-    if (currentTab === 'reports') {
+    if (currentTab === 'reports' || currentTab === 'prn') {
       $('#process_detail_search_bar').hide();
     } else {
       $('#process_detail_search_bar').show();
@@ -561,6 +612,8 @@
     $('#check_pet_form_container').hide();
     $('#treatment_plan_form_container').hide();
     $('#treatment_lunch_rest_form_container').hide();
+    $('#prn_form_container').hide();
+    $('#end_of_day_form_container').hide();
     $('#no_details_message').show();
     $('#save_details_btn_container').hide();
     $('#staff_sign_off_container').hide();
@@ -637,10 +690,14 @@
         processId === 'dne_list_pm' ||
         processId === 'report_lunch' ||
         processId === 'report_rest' ||
+        processId === 'report_prn' ||
         processId === 'treatment_concern' ||
         processId === 'end_of_day'
       ) {
         return 'bg-success/20 text-secondary';
+      }
+      if (processId === 'prn_meds') {
+        return 'bg-error/20 text-error';
       }
       return 'bg-base-300 text-base-content';
     };
@@ -650,7 +707,7 @@
       const colorClass = getProcessColor(process.id);
       const processData = workflowData[process.id];
       const isActive = processData ? 'opacity-100' : 'opacity-70';
-      const showCompleted = processData && !(process.id === 'end_of_day' && tab === 'reports');
+      const showCompleted = processData && !(process.id === 'end_of_day' && tab === 'reports') && !(process.id === 'report_prn' && tab === 'reports');
       
       html += `
         <li class="process-item ${isActive}" data-process-id="${process.id}">
@@ -685,7 +742,7 @@
   }
 
   function toggleTableColumns(processId) {
-    const reportsTabStepsWithIssue = ['dne_list_am', 'dne_list_pm', 'report_lunch', 'report_rest', 'treatment_concern', 'end_of_day'];
+    const reportsTabStepsWithIssue = ['dne_list_am', 'dne_list_pm', 'report_lunch', 'report_rest', 'report_prn', 'treatment_concern', 'end_of_day'];
     if (processId === 'reports_am' || processId === 'reports_pm') {
       $('.pet-details-checkbox-col').hide();
     } else {
@@ -728,6 +785,7 @@
     $('#check_pet_form_container').hide();
     $('#treatment_plan_form_container').hide();
     $('#treatment_lunch_rest_form_container').hide();
+    $('#prn_form_container').hide();
     $('#end_of_day_form_container').hide();
     $('#dne_list_search_bar').hide();
     $('#save_details_btn_container').hide();
@@ -967,6 +1025,30 @@
       loadStaffSignOff();
       return;
     }
+    if (currentProcessItem === 'prn_meds') {
+      $('#prn_form_container').show();
+      updatePetCountsDisplay(null, selectedAppointmentIds.length);
+      loadStaffSignOff();
+      $.ajax({
+        url: '{{ route("boarding-process-log-get-checkin-data") }}',
+        method: 'POST',
+        data: { _token: '{{ csrf_token() }}', appointment_ids: getSelectedRequestAppointmentIds() },
+        success: function(response) {
+          const checkinData = response.success && response.data ? response.data : null;
+          renderPrnForm(checkinData);
+        },
+        error: function() {
+          renderPrnForm(null);
+        }
+      });
+      return;
+    }
+    if (currentProcessItem === 'report_prn') {
+      $('#prn_form_container').show();
+      updatePetCountsDisplay(null, selectedAppointmentIds.length);
+      renderReportPrnForm();
+      return;
+    }
     if (currentProcessItem === 'end_of_day') {
       renderEndOfDayForm();
       $('#end_of_day_form_container').show();
@@ -1038,7 +1120,7 @@
     bodyParts.forEach(part => {
       headerHtml += `<th style="text-align: center; min-width: 90px;">${part}</th>`;
     });
-    headerHtml += '<th style="text-align: center; min-width: 130px;">Flea/Tick</th>';
+    headerHtml += '<th style="text-align: center; min-width: 150px;">Fleas/Ticks</th>';
     headerHtml += '</tr>';
     $('#check_pet_thead').html(headerHtml);
     
@@ -1058,8 +1140,7 @@
       
       const savedPetData = savedCheckData[appointmentId] || {};
       const savedFleaTick = isTruthyBoardingValue(savedFleaTickData[appointmentId]);
-      const checkinFleaTick = checkinFleaTickByWorkflowId[String(appointmentId)] === true;
-      const fleaTickChecked = savedFleaTick || checkinFleaTick;
+      const fleaTickChecked = savedFleaTick;
       
       bodyHtml += `<tr class="hover:bg-base-200" data-appointment-id="${appointmentId}">`;
       
@@ -1110,9 +1191,8 @@
         <td style="text-align: center;">
           <label class="label cursor-pointer justify-center gap-2">
             <input class="checkbox checkbox-sm flea-tick-checkbox" type="checkbox" data-appointment-id="${appointmentId}" ${fleaTickChecked ? 'checked' : ''} />
-            <span class="label-text text-xs">Flea/Tick</span>
+            <span class="label-text text-xs">Detected</span>
           </label>
-          ${checkinFleaTick ? '<div class="text-[10px] text-base-content/60">from check-in</div>' : ''}
         </td>
       `;
       
@@ -1140,6 +1220,7 @@
       'eyes': 'Eyes',
       'mouth': 'Mouth',
       'body_coat': 'Body/Coat',
+      'flea_tick': 'Flea/Tick',
       'paws_feet': 'Paws/Feet',
       'abdomen': 'Abdomen',
       'digestive': 'Digestive',
@@ -1364,6 +1445,7 @@
       'eyes': 'Eyes',
       'mouth': 'Mouth',
       'body_coat': 'Body/Coat',
+      'flea_tick': 'Flea/Tick',
       'paws_feet': 'Paws/Feet',
       'abdomen': 'Abdomen',
       'digestive': 'Digestive',
@@ -1482,7 +1564,7 @@
 
   const bodyPartsMapTLR = {
     'nose': 'Nose', 'ears': 'Ears', 'eyes': 'Eyes', 'mouth': 'Mouth',
-    'body_coat': 'Body/Coat', 'paws_feet': 'Paws/Feet', 'abdomen': 'Abdomen',
+    'body_coat': 'Body/Coat', 'flea_tick': 'Flea/Tick', 'paws_feet': 'Paws/Feet', 'abdomen': 'Abdomen',
     'digestive': 'Digestive', 'diarrhea': 'Diarrhea'
   };
 
@@ -2233,6 +2315,121 @@
     updatePetCountsDisplay(treatmentListBasePetIds.length, selectedAppointmentIds.length);
   }
 
+  function renderPrnForm(checkinData) {
+    const savedPrnData = (workflowData['prn_meds'] && workflowData['prn_meds'].prn_records) ? workflowData['prn_meds'].prn_records : {};
+
+    // Only show pets that have at least one medication with dispense_prn checked at check-in
+    const prnPets = (checkinData && checkinData.length > 0)
+      ? checkinData.filter(function(pet) {
+          const flows = (pet.checkin || {}).flows || {};
+          const medRows = getMedicationRowsFromFlows(flows);
+          return medRows.some(function(row) { return isFlowChecked(row && row.dispense_prn); });
+        })
+      : [];
+
+    let theadHtml = `<tr>
+      <th>Pet Name</th>
+      <th>Customer</th>
+      <th>Medication Name</th>
+      <th>Amount / Dose</th>
+    </tr>`;
+    $('#prn_thead').html(theadHtml);
+
+    let tbodyHtml = '';
+    if (prnPets.length > 0) {
+      prnPets.forEach(function(pet) {
+        const workflowId = pet.workflow_id || pet.appointment_id;
+        const saved = savedPrnData[workflowId] || {};
+        const medicationName = saved.medication_name || '';
+        const amount = saved.amount || '';
+        const petName = pet.pet_name || 'Unknown Pet';
+        const customerName = pet.customer_name || '';
+        const petAvatarUrl = pet.pet_img ? '{{ asset("storage/pets/") }}/' + pet.pet_img : '{{ asset("images/no_image.jpg") }}';
+        tbodyHtml += `<tr>
+          <td>
+            <div class="flex items-center space-x-3">
+              <img src="${petAvatarUrl}" alt="Pet" class="mask mask-squircle bg-base-200 size-10" />
+              <span class="font-medium">${petName}</span>
+            </div>
+          </td>
+          <td class="text-base-content/70">${customerName}</td>
+          <td><input type="text" class="input input-sm prn-medication-name" data-workflow-id="${workflowId}" value="${medicationName.replace(/"/g, '&quot;')}" placeholder="Medication name" /></td>
+          <td><input type="text" class="input input-sm prn-amount" data-workflow-id="${workflowId}" value="${amount.replace(/"/g, '&quot;')}" placeholder="e.g. 1 tablet" /></td>
+        </tr>`;
+      });
+    } else {
+      tbodyHtml = '<tr><td colspan="4" class="text-center p-4 text-base-content/70">No pets with PRN medications found for this date.</td></tr>';
+    }
+    $('#prn_tbody').html(tbodyHtml);
+
+    // Save PRN records when inputs change
+    $('#prn_tbody').off('input.prn').on('input.prn', '.prn-medication-name, .prn-amount', function() {
+      savePrnRecords();
+    });
+
+    if (prnPets.length > 0) {
+      $('#save_details_btn_container').show();
+      $('#staff_sign_off_container').show();
+    } else {
+      $('#save_details_btn_container').hide();
+      $('#staff_sign_off_container').hide();
+    }
+  }
+
+  function savePrnRecords() {
+    const prn_records = {};
+    $('#prn_tbody tr').each(function() {
+      const $medInput = $(this).find('.prn-medication-name');
+      const $amtInput = $(this).find('.prn-amount');
+      if ($medInput.length) {
+        const workflowId = $medInput.data('workflow-id');
+        prn_records[workflowId] = {
+          medication_name: $medInput.val(),
+          amount: $amtInput.val()
+        };
+      }
+    });
+    if (!workflowData['prn_meds']) workflowData['prn_meds'] = {};
+    workflowData['prn_meds'].prn_records = prn_records;
+  }
+
+  function renderReportPrnForm() {
+    const savedPrnData = (workflowData['prn_meds'] && workflowData['prn_meds'].prn_records) ? workflowData['prn_meds'].prn_records : {};
+
+    let theadHtml = `<tr>
+      <th>Pet Name</th>
+      <th>Medication Name</th>
+      <th>Amount / Dose</th>
+    </tr>`;
+    $('#prn_thead').html(theadHtml);
+
+    const entries = Object.entries(savedPrnData);
+    let tbodyHtml = '';
+    if (entries.length > 0) {
+      entries.forEach(function([workflowId, rec]) {
+        const medName = rec.medication_name || '—';
+        const amount = rec.amount || '—';
+        const pet = appointmentToPetMap[workflowId] || appointmentToPetMap[String(workflowId)] || null;
+        const petName = pet && pet.pet_name ? pet.pet_name : ('Pet #' + workflowId);
+        const petImg = pet && pet.pet_img ? pet.pet_img : '';
+        const petAvatarUrl = petImg ? '{{ asset("storage/pets/") }}/' + petImg : '{{ asset("images/no_image.jpg") }}';
+        tbodyHtml += `<tr>
+          <td>
+            <div class="flex items-center space-x-3">
+              <img src="${petAvatarUrl}" alt="Pet" class="mask mask-squircle bg-base-200 size-10" />
+              <span class="font-medium">${petName}</span>
+            </div>
+          </td>
+          <td>${medName}</td>
+          <td>${amount}</td>
+        </tr>`;
+      });
+    } else {
+      tbodyHtml = '<tr><td colspan="3" class="text-center p-4 text-base-content/70">No PRN records saved for this date.</td></tr>';
+    }
+    $('#prn_tbody').html(tbodyHtml);
+  }
+
   function renderEndOfDayForm() {
     const date = $('#workflow_date').val() || '{{ \Carbon\Carbon::today()->format("Y-m-d") }}';
     const reportUrl = '{{ url("/reports/end-of-day") }}?date=' + encodeURIComponent(date) + '&embed=1';
@@ -2272,7 +2469,7 @@
     }
 
     const fallback = flows.meds || {};
-    if (fallback.name || fallback.amount || isFlowChecked(fallback.dispense_am) || isFlowChecked(fallback.dispense_pm) || isFlowChecked(fallback.dispense_rest)) {
+    if (fallback.name || fallback.amount || isFlowChecked(fallback.dispense_am) || isFlowChecked(fallback.dispense_pm) || isFlowChecked(fallback.dispense_rest) || isFlowChecked(fallback.dispense_prn)) {
       return [fallback];
     }
 
@@ -2293,7 +2490,9 @@
     }
 
     const periodKey = displayPeriod === 'am' ? 'dispense_am' : (displayPeriod === 'pm' ? 'dispense_pm' : null);
-    const rowsToRender = periodKey ? rows.filter(row => isFlowChecked(row && row[periodKey])) : rows;
+    const rowsToRender = periodKey
+      ? rows.filter(row => isFlowChecked(row && row[periodKey]))
+      : rows;
     if (rowsToRender.length === 0) {
       return '-';
     }
@@ -2335,14 +2534,17 @@
     const rowTexts = rowsToRender.map(row => {
       const labels = [];
       if (displayPeriod === 'am') {
-        labels.push('AM');
+        if (isFlowChecked(row.dispense_am)) labels.push('AM');
+        if (isFlowChecked(row.dispense_prn)) labels.push('PRN');
       } else if (displayPeriod === 'pm') {
-        labels.push('PM');
+        if (isFlowChecked(row.dispense_pm)) labels.push('PM');
+        if (isFlowChecked(row.dispense_prn)) labels.push('PRN');
       } else {
         if (isFlowChecked(row.dispense_am)) labels.push('AM');
         if (isFlowChecked(row.dispense_pm)) labels.push('PM');
         if (isFlowChecked(row.dispense_rest)) labels.push('Rest');
         if (isFlowChecked(row.dispense_before_bed)) labels.push('Before Bed');
+        if (isFlowChecked(row.dispense_prn)) labels.push('PRN');
         if (isFlowChecked(row.dispense_custom_time)) {
           labels.push(row.custom_time ? `Custom Time (${row.custom_time})` : 'Custom Time');
         }
@@ -2591,6 +2793,15 @@
         });
 
         fleaTickData[appointmentId] = $(`.flea-tick-checkbox[data-appointment-id="${appointmentId}"]`).is(':checked');
+        if (fleaTickData[appointmentId]) {
+          checkPetData[appointmentId].flea_tick = {
+            status: 'issue'
+          };
+        } else {
+          checkPetData[appointmentId].flea_tick = {
+            status: ''
+          };
+        }
       });
       
       if (!workflowData[currentProcessItem]) {
@@ -2788,6 +2999,10 @@
       if (!workflowData[currentProcessItem]) workflowData[currentProcessItem] = {};
       workflowData[currentProcessItem].process_type = currentProcessItem;
       workflowData[currentProcessItem].selected_pet_ids = treatmentConcernPetIds;
+    } else if (currentProcessItem === 'prn_meds') {
+      savePrnRecords();
+      if (!workflowData['prn_meds']) workflowData['prn_meds'] = {};
+      workflowData['prn_meds'].process_type = 'prn_meds';
     } else if (currentProcessItem === 'end_of_day') {
       if (!workflowData['end_of_day']) workflowData['end_of_day'] = {};
       workflowData['end_of_day'].process_type = 'end_of_day';
@@ -2825,7 +3040,7 @@
       };
     }
 
-    const noSignOffSteps = ['dne_list_am', 'dne_list_pm', 'report_lunch', 'report_rest', 'treatment_concern', 'end_of_day'];
+    const noSignOffSteps = ['dne_list_am', 'dne_list_pm', 'report_lunch', 'report_rest', 'report_prn', 'treatment_concern', 'end_of_day'];
     const skipSignOff = noSignOffSteps.includes(currentProcessItem) || isFoodNoRecord || isMedsNoRecord || isReportsNoIssue;
 
     if (skipSignOff) {
@@ -2918,7 +3133,7 @@
   });
 
   function updateWorkflowProgress() {
-    const progressExcludeIds = ['dne_list_am', 'dne_list_pm', 'report_lunch', 'report_rest', 'treatment_concern', 'end_of_day'];
+    const progressExcludeIds = ['dne_list_am', 'dne_list_pm', 'report_lunch', 'report_rest', 'report_prn', 'treatment_concern', 'end_of_day'];
     const totalProcesses = Object.keys(tabProcesses).reduce((sum, tab) => {
       const count = tabProcesses[tab].filter(p => !progressExcludeIds.includes(p.id)).length;
       return sum + count;

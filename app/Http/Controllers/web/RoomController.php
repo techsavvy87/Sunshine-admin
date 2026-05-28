@@ -58,25 +58,123 @@ class RoomController extends Controller
             return collect([$appointment->pet])->filter();
         };
 
-        $activeBoardingAppointmentsByKennel = $activeBoardingAppointments
-            ->whereNotNull('kennel_id')
-            ->groupBy('kennel_id')
-            ->map(function ($appointments) use ($collectAppointmentPets) {
-                return $appointments->flatMap(function ($appointment) use ($collectAppointmentPets) {
-                    return $collectAppointmentPets($appointment);
-                })->filter()->unique('id')->values();
-            });
+        $activeBoardingEntriesByKennel = collect();
+        $activeBoardingEntriesByRoom = collect();
 
-        $activeBoardingAppointmentsByRoom = $activeBoardingAppointments
-            ->whereNotNull('cat_room_id')
-            ->groupBy('cat_room_id')
-            ->map(function ($appointments) use ($collectAppointmentPets) {
-                return $appointments->flatMap(function ($appointment) use ($collectAppointmentPets) {
-                    return $collectAppointmentPets($appointment);
-                })->filter()->unique('id')->values();
-            });
+        foreach ($activeBoardingAppointments as $appointment) {
+            $appointmentPetsById = $collectAppointmentPets($appointment)
+                ->keyBy('id');
 
-        $rooms->getCollection()->transform(function ($room) use ($kennelLookup, $activeBoardingAppointmentsByKennel, $activeBoardingAppointmentsByRoom, $activeBoardingAppointments) {
+            $assignmentDetails = collect($appointment->family_pet_assignment_details ?? []);
+
+            if ($assignmentDetails->isNotEmpty()) {
+                $assignmentDetails
+                    ->filter(fn ($detail) => (int) ($detail['kennel_id'] ?? 0) > 0)
+                    ->groupBy(fn ($detail) => (int) ($detail['kennel_id'] ?? 0))
+                    ->each(function ($detailsForKennel, $kennelId) use (&$activeBoardingEntriesByKennel, $appointment, $appointmentPetsById) {
+                        $kennelPets = $detailsForKennel
+                            ->map(function ($detail) use ($appointmentPetsById) {
+                                $petId = (int) ($detail['pet_id'] ?? 0);
+                                $pet = $appointmentPetsById->get($petId);
+
+                                if ($pet) {
+                                    return $pet;
+                                }
+
+                                if ($petId <= 0) {
+                                    return null;
+                                }
+
+                                return (object) [
+                                    'id' => $petId,
+                                    'name' => (string) ($detail['pet_name'] ?? 'Pet'),
+                                    'pet_img' => null,
+                                ];
+                            })
+                            ->filter()
+                            ->unique('id')
+                            ->values();
+
+                        if ($kennelPets->isEmpty()) {
+                            return;
+                        }
+
+                        $activeBoardingEntriesByKennel->put(
+                            (int) $kennelId,
+                            $activeBoardingEntriesByKennel->get((int) $kennelId, collect())->push((object) [
+                                'appointment' => $appointment,
+                                'pets' => $kennelPets,
+                            ])
+                        );
+                    });
+
+                $assignmentDetails
+                    ->filter(fn ($detail) => (int) ($detail['room_id'] ?? 0) > 0)
+                    ->groupBy(fn ($detail) => (int) ($detail['room_id'] ?? 0))
+                    ->each(function ($detailsForRoom, $roomId) use (&$activeBoardingEntriesByRoom, $appointment, $appointmentPetsById) {
+                        $roomPets = $detailsForRoom
+                            ->map(function ($detail) use ($appointmentPetsById) {
+                                $petId = (int) ($detail['pet_id'] ?? 0);
+                                $pet = $appointmentPetsById->get($petId);
+
+                                if ($pet) {
+                                    return $pet;
+                                }
+
+                                if ($petId <= 0) {
+                                    return null;
+                                }
+
+                                return (object) [
+                                    'id' => $petId,
+                                    'name' => (string) ($detail['pet_name'] ?? 'Pet'),
+                                    'pet_img' => null,
+                                ];
+                            })
+                            ->filter()
+                            ->unique('id')
+                            ->values();
+
+                        if ($roomPets->isEmpty()) {
+                            return;
+                        }
+
+                        $activeBoardingEntriesByRoom->put(
+                            (int) $roomId,
+                            $activeBoardingEntriesByRoom->get((int) $roomId, collect())->push((object) [
+                                'appointment' => $appointment,
+                                'pets' => $roomPets,
+                            ])
+                        );
+                    });
+
+                continue;
+            }
+
+            $legacyKennelId = (int) ($appointment->kennel_id ?? 0);
+            if ($legacyKennelId > 0) {
+                $activeBoardingEntriesByKennel->put(
+                    $legacyKennelId,
+                    $activeBoardingEntriesByKennel->get($legacyKennelId, collect())->push((object) [
+                        'appointment' => $appointment,
+                        'pets' => $collectAppointmentPets($appointment)->unique('id')->values(),
+                    ])
+                );
+            }
+
+            $legacyRoomId = (int) ($appointment->cat_room_id ?? 0);
+            if ($legacyRoomId > 0) {
+                $activeBoardingEntriesByRoom->put(
+                    $legacyRoomId,
+                    $activeBoardingEntriesByRoom->get($legacyRoomId, collect())->push((object) [
+                        'appointment' => $appointment,
+                        'pets' => $collectAppointmentPets($appointment)->unique('id')->values(),
+                    ])
+                );
+            }
+        }
+
+        $rooms->getCollection()->transform(function ($room) use ($kennelLookup, $activeBoardingEntriesByKennel, $activeBoardingEntriesByRoom) {
             $room->assigned_kennels = collect($room->kennel_id_array)
                 ->map(fn ($id) => $kennelLookup->get((int) $id))
                 ->filter()
@@ -84,13 +182,21 @@ class RoomController extends Controller
 
             $room->assigned_kennel_names = $room->assigned_kennels->pluck('name')->implode(', ');
             $isSpaceRoom = in_array('space', $room->room_type_array, true);
+            $roomEntries = $activeBoardingEntriesByRoom->get((int) $room->id, collect());
             $room->current_room_pets = $isSpaceRoom
-                ? $activeBoardingAppointmentsByRoom->get((int) $room->id, collect())
+                ? $roomEntries->flatMap(fn ($entry) => collect($entry->pets ?? []))->filter()->unique('id')->values()
                 : collect();
-            $room->kennel_pet_assignments = $room->assigned_kennels->map(function ($kennel) use ($activeBoardingAppointmentsByKennel, $activeBoardingAppointments) {
-                $pets = $activeBoardingAppointmentsByKennel->get((int) $kennel->id, collect());
-                $appointments = $activeBoardingAppointments
-                    ->where('kennel_id', $kennel->id)
+            $room->kennel_pet_assignments = $room->assigned_kennels->map(function ($kennel) use ($activeBoardingEntriesByKennel) {
+                $kennelEntries = $activeBoardingEntriesByKennel->get((int) $kennel->id, collect());
+                $pets = $kennelEntries
+                    ->flatMap(fn ($entry) => collect($entry->pets ?? []))
+                    ->filter()
+                    ->unique('id')
+                    ->values();
+                $appointments = $kennelEntries
+                    ->map(fn ($entry) => $entry->appointment)
+                    ->filter()
+                    ->unique('id')
                     ->values();
 
                 return (object) [

@@ -131,6 +131,20 @@
     .pet-note {
       margin-bottom: 1px;
     }
+    .care-notes-row {
+      margin-top: 3px;
+      padding-top: 2px;
+    }
+    .care-notes-label {
+      font-weight: bold;
+      margin-right: 4px;
+      display: block;
+      margin-bottom: 1px;
+    }
+    .care-notes-content {
+      display: block;
+      white-space: pre-line;
+    }
     @media print {
       body {
         padding: 6px;
@@ -155,8 +169,8 @@
     <div class="grid">
       <div class="grid-row">
         <div class="grid-cell">
-          <span class="field-label">Kennel:</span>
-          <span class="field-value">{{ $kennelName ?? 'N/A' }}</span>
+          <span class="field-label">Assignment:</span>
+          <span class="field-value">{{ $assignmentLabel ?? $kennelName ?? 'N/A' }}</span>
         </div>
       </div>
       <div class="grid-row">
@@ -291,6 +305,13 @@
                   {{ $petData['restNote'] }}
                 </div>
               @endif
+            @endif
+
+            @if(!empty($petData['careNotes']))
+              <div class="care-notes-row">
+                <span class="care-notes-label">Care notes</span>
+                <span class="care-notes-content">{{ $petData['careNotes'] }}</span>
+              </div>
             @endif
           </div>
         @endforeach

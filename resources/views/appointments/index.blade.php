@@ -94,6 +94,19 @@
               $stayDays = $checkInDate->copy()->startOfDay()->diffInDays($pickupDate->copy()->startOfDay()) + 1;
               $totalMeals = $stayDays * 2;
               $hasConflict = isAssignmentConflict($appointment);
+              $assignmentDetails = $appointment->family_pet_assignment_details;
+              $uniqueRoomNames = collect($assignmentDetails)
+                ->pluck('room_name')
+                ->map(fn($name) => trim((string) $name))
+                ->filter(fn($name) => $name !== '')
+                ->unique()
+                ->values();
+              $uniqueKennelNames = collect($assignmentDetails)
+                ->pluck('kennel_name')
+                ->map(fn($name) => trim((string) $name))
+                ->filter(fn($name) => $name !== '')
+                ->unique()
+                ->values();
             @endphp
             <tr class="hover:bg-base-200/40 cursor-pointer *:text-nowrap {{ $hasConflict ? 'assignment-conflict-row' : '' }}">
               <td>{{ $loop->iteration }}</td>
@@ -119,7 +132,19 @@
               </td>
               <td>
                 <div class="flex items-center gap-2">
-                  <span>{{ optional($appointment->catRoom)->name ?? $roomByKennel->get((string) $appointment->kennel_id, '—') }}</span>
+                  @if (!empty($assignmentDetails))
+                    @if ($uniqueRoomNames->count() === 1)
+                      <span>{{ $uniqueRoomNames->first() }}</span>
+                    @else
+                      <div class="flex flex-col gap-1">
+                        @foreach ($assignmentDetails as $assignmentDetail)
+                          <span>{{ $assignmentDetail['room_name'] ?: '—' }}</span>
+                        @endforeach
+                      </div>
+                    @endif
+                  @else
+                    <span>{{ optional($appointment->catRoom)->name ?? $roomByKennel->get((string) $appointment->kennel_id, '—') }}</span>
+                  @endif
                   @if ($hasConflict)
                     <span class="assignment-conflict-badge">
                       <span class="iconify lucide--alert-circle size-3"></span>
@@ -130,7 +155,21 @@
               </td>
               <td>
                 <div class="flex items-center gap-2">
-                  <span>{{ optional($appointment->kennel)->name ?? '—' }}</span>
+                  @if (!empty($assignmentDetails))
+                    @if ($uniqueKennelNames->count() === 1)
+                      <span>{{ $uniqueKennelNames->first() }}</span>
+                    @elseif ($uniqueKennelNames->isEmpty())
+                      <span>—</span>
+                    @else
+                      <div class="flex flex-col gap-1">
+                        @foreach ($uniqueKennelNames as $kennelName)
+                          <span>{{ $kennelName }}</span>
+                        @endforeach
+                      </div>
+                    @endif
+                  @else
+                    <span>{{ optional($appointment->kennel)->name ?? '—' }}</span>
+                  @endif
                   @if ($hasConflict)
                     <span class="assignment-conflict-badge">
                       <span class="iconify lucide--alert-circle size-3"></span>

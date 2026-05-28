@@ -132,6 +132,10 @@
               @endforeach
             </select>
           </div>
+          <div class="space-y-2 hidden xl:col-span-4" id="family_kennel_assignments_group">
+            <label class="fieldset-label">Kennel Assignments*</label>
+            <div id="family_kennel_assignments_container" class="grid grid-cols-1 gap-3 xl:grid-cols-2"></div>
+          </div>
           <div class="space-y-2" id="additional_services_group">
             <label class="fieldset-label" for="additional_services">Additional Services</label>
             <div id="additional_services_single_wrapper">
@@ -303,6 +307,7 @@
           },
         @endforeach
       ];
+      window.initialFamilyPetAssignments = @json($appointment->family_pet_assignments ?? []);
 
       // customer select2 with ajax
       $('#customer').select2({
@@ -684,7 +689,8 @@
           $.each(pets, function(index, pet) {
             const selected = normalizedPetIds.includes(String(pet.id)) ? ' selected' : '';
             const petType = String(pet.type || '');
-            $('#pet').append('<option value="' + pet.id + '" data-pet-type="' + petType + '"' + selected + '>' + pet.name + '</option>');
+            const petSize = String(pet.size || '');
+            $('#pet').append('<option value="' + pet.id + '" data-pet-type="' + petType + '" data-pet-size="' + petSize + '"' + selected + '>' + pet.name + '</option>');
           });
 
           $('#pet').val(normalizedPetIds).trigger('change');
@@ -771,18 +777,43 @@
 
     function refreshAvailableKennels() {
       if (!isBoardingSelectedService($('#service').val())) {
+        $('#room_group').removeClass('hidden');
         $('#kennel_group').addClass('hidden');
+        $('#family_kennel_assignments_group').addClass('hidden');
+        $('#kennel').prop('disabled', true);
+        $('.family-pet-room-select').prop('disabled', true);
+        $('.family-pet-kennel-select').prop('disabled', true);
         return;
       }
 
+      const familyMode = getSelectedPetAssignmentMode();
+
+      if (familyMode === 'individual') {
+        $('#room_group').addClass('hidden');
+        $('#kennel_group').addClass('hidden');
+        $('#kennel').prop('disabled', true);
+        renderFamilyPetAssignmentFields(Object.assign({}, window.initialFamilyPetAssignments || {}, getSelectedFamilyPetAssignments()));
+        return;
+      }
+
+      $('#room_group').removeClass('hidden');
+
       if (!$('#room').val()) {
         $('#kennel_group').addClass('hidden');
+        $('#family_kennel_assignments_group').addClass('hidden');
+        $('#kennel').prop('disabled', true);
+        $('.family-pet-room-select').prop('disabled', true);
+        $('.family-pet-kennel-select').prop('disabled', true);
         renderKennelOptions(window.initialKennels || [], $('#kennel').val());
         return;
       }
 
       if (getSelectedRoomType() === 'space') {
         $('#kennel_group').addClass('hidden');
+        $('#family_kennel_assignments_group').addClass('hidden');
+        $('#kennel').prop('disabled', true);
+        $('.family-pet-room-select').prop('disabled', true);
+        $('.family-pet-kennel-select').prop('disabled', true);
         $('#kennel').val('').trigger('change');
         return;
       }
@@ -794,24 +825,47 @@
         return roomKennelIds.includes(String(kennel.id));
       });
 
+      $('#family_kennel_assignments_group').addClass('hidden');
+      $('.family-pet-room-select').prop('disabled', true);
+      $('.family-pet-kennel-select').prop('disabled', true);
       $('#kennel_group').removeClass('hidden');
+      $('#kennel').prop('disabled', false);
       renderKennelOptions(roomKennels, currentKennel || '{{ $appointment->kennel_id }}');
     }
 
     function updateBoardingLocationField() {
       if (!isBoardingSelectedService($('#service').val())) {
+        $('#room_group').removeClass('hidden');
         $('#kennel_group').addClass('hidden');
+        $('#family_kennel_assignments_group').addClass('hidden');
+        $('#kennel').prop('disabled', true);
+        $('.family-pet-room-select').prop('disabled', true);
+        $('.family-pet-kennel-select').prop('disabled', true);
         return;
       }
 
+      if (getSelectedPetAssignmentMode() === 'individual') {
+        $('#room_group').addClass('hidden');
+        $('#kennel_group').addClass('hidden');
+        $('#kennel').prop('disabled', true);
+        renderFamilyPetAssignmentFields(Object.assign({}, window.initialFamilyPetAssignments || {}, getSelectedFamilyPetAssignments()));
+        return;
+      }
+
+      $('#room_group').removeClass('hidden');
+
       if (shouldUseRoomForSelectedPets()) {
         $('#kennel_group').addClass('hidden');
+        $('#family_kennel_assignments_group').addClass('hidden');
+        $('#kennel').prop('disabled', true);
         $('#kennel').val('').trigger('change');
       } else if ($('#room').val()) {
         $('#kennel_group').removeClass('hidden');
         refreshAvailableKennels();
       } else {
         $('#kennel_group').addClass('hidden');
+        $('#family_kennel_assignments_group').addClass('hidden');
+        $('#kennel').prop('disabled', true);
       }
     }
 
@@ -874,9 +928,199 @@
       return ($('#pet option:selected') || []).map(function(_, option) {
         return {
           id: String(option.value),
-          name: $(option).text().trim()
+          name: $(option).text().trim(),
+          size: String($(option).data('pet-size') || '').trim().toLowerCase()
         };
       }).get();
+    }
+
+    function getSelectedPetAssignmentMode() {
+      const selectedPets = getSelectedPetDetails();
+
+      if (selectedPets.length <= 1) {
+        return 'shared';
+      }
+
+      return selectedPets.some(function(pet) {
+        return pet.size !== 'small';
+      }) ? 'individual' : 'shared';
+    }
+
+    function getRoomById(roomId) {
+      return (window.initialRooms || []).find(function(room) {
+        return String(room.id) === String(roomId);
+      }) || null;
+    }
+
+    function getRoomTypeById(roomId) {
+      const room = getRoomById(roomId);
+      if (!room) {
+        return '';
+      }
+
+      const roomTypes = String(room.room_types || '').toLowerCase();
+      return roomTypes.includes('space') ? 'space' : 'standard';
+    }
+
+    function getKennelsForRoom(roomId) {
+      const room = getRoomById(roomId);
+      if (!room) {
+        return [];
+      }
+
+      const roomKennelIds = String(room.kennel_ids || '')
+        .split(',')
+        .map(function(id) {
+          return String(id).trim();
+        })
+        .filter(function(id) {
+          return id !== '';
+        });
+
+      return (window.initialKennels || []).filter(function(kennel) {
+        return roomKennelIds.includes(String(kennel.id));
+      });
+    }
+
+    function getSelectedFamilyPetAssignments() {
+      const assignments = {};
+
+      $('.family-pet-room-select').each(function() {
+        const petId = String($(this).data('pet-id') || '');
+        const roomId = String($(this).val() || '');
+
+        if (!petId || !roomId) {
+          return;
+        }
+
+        const kennelId = String($('#family_pet_kennel_' + petId).val() || '');
+
+        assignments[petId] = {
+          room_id: roomId,
+          kennel_id: kennelId || null,
+        };
+      });
+
+      return assignments;
+    }
+
+    function hasMissingFamilyPetAssignments() {
+      if (getSelectedPetAssignmentMode() !== 'individual') {
+        return false;
+      }
+
+      const assignments = getSelectedFamilyPetAssignments();
+
+      return getSelectedPetDetails().some(function(pet) {
+        const assignment = assignments[String(pet.id)] || null;
+        if (!assignment || !assignment.room_id) {
+          return true;
+        }
+
+        if (getRoomTypeById(assignment.room_id) === 'standard' && !assignment.kennel_id) {
+          return true;
+        }
+
+        return false;
+      });
+    }
+
+    function renderFamilyPetKennelOptions($kennelSelect, roomId, selectedKennelId = '') {
+      const kennels = getKennelsForRoom(roomId);
+      $kennelSelect.empty();
+      $kennelSelect.append('<option value="" hidden selected>Choose a kennel</option>');
+
+      if (!kennels.length) {
+        $kennelSelect.append('<option value="" disabled>No available kennels</option>');
+        $kennelSelect.val('').trigger('change');
+        return;
+      }
+
+      kennels.forEach(function(kennel) {
+        $kennelSelect.append('<option value="' + kennel.id + '">' + kennel.name + '</option>');
+      });
+
+      const selectedExists = selectedKennelId && kennels.some(function(kennel) {
+        return String(kennel.id) === String(selectedKennelId);
+      });
+
+      $kennelSelect.val(selectedExists ? String(selectedKennelId) : '').trigger('change');
+    }
+
+    function renderFamilyPetAssignmentFields(currentAssignments = {}) {
+      const selectedPets = getSelectedPetDetails();
+      const $container = $('#family_kennel_assignments_container');
+      $container.empty();
+
+      if (selectedPets.length <= 1) {
+        $('#family_kennel_assignments_group').addClass('hidden');
+        return;
+      }
+
+      let roomOptions = '<option value="" hidden selected>Choose a room</option>';
+      (window.initialRooms || []).forEach(function(room) {
+        roomOptions += '<option value="' + room.id + '">' + room.name + '</option>';
+      });
+
+      selectedPets.forEach(function(pet) {
+        const petId = String(pet.id);
+        const assignment = currentAssignments[petId] || {};
+        const selectedRoomId = String(assignment.room_id || '');
+
+        $container.append(`
+          <div class="space-y-2 rounded-box border border-base-300 p-3">
+            <label class="fieldset-label">${pet.name}</label>
+            <select class="select w-full family-pet-room-select" id="family_pet_room_${petId}" name="family_pet_assignments[${petId}][room_id]" data-pet-id="${petId}">
+              ${roomOptions}
+            </select>
+            <div class="space-y-2" id="family_pet_kennel_group_${petId}">
+              <label class="fieldset-label" for="family_pet_kennel_${petId}">Kennel*</label>
+              <select class="select w-full family-pet-kennel-select" id="family_pet_kennel_${petId}" name="family_pet_assignments[${petId}][kennel_id]" data-pet-id="${petId}">
+                <option value="" hidden selected>Choose a kennel</option>
+              </select>
+            </div>
+          </div>
+        `);
+
+        const $roomSelect = $('#family_pet_room_' + petId);
+        const $kennelSelect = $('#family_pet_kennel_' + petId);
+        const $kennelGroup = $('#family_pet_kennel_group_' + petId);
+        $roomSelect.val(selectedRoomId || '').trigger('change');
+
+        const toggleKennelForRoom = function(roomId, initialKennelId = '') {
+          if (!roomId || getRoomTypeById(roomId) === 'space') {
+            $kennelGroup.addClass('hidden');
+            $kennelSelect.prop('disabled', true);
+            $kennelSelect.val('').trigger('change');
+            return;
+          }
+
+          $kennelGroup.removeClass('hidden');
+          $kennelSelect.prop('disabled', false);
+          renderFamilyPetKennelOptions($kennelSelect, roomId, initialKennelId);
+        };
+
+        toggleKennelForRoom(selectedRoomId, assignment.kennel_id || '');
+
+        $roomSelect.off('change').on('change', function() {
+          const nextRoomId = String($(this).val() || '');
+          toggleKennelForRoom(nextRoomId, '');
+        });
+      });
+
+      $('.family-pet-room-select').select2({
+        placeholder: 'Choose a room',
+        width: '100%',
+        allowClear: true
+      });
+
+      $('.family-pet-kennel-select').select2({
+        placeholder: 'Choose a kennel',
+        width: '100%',
+        allowClear: true
+      });
+
+      $('#family_kennel_assignments_group').removeClass('hidden');
     }
 
     function getPerPetAdditionalServicesPayload() {
@@ -1483,6 +1727,8 @@
       const kennel = $('#kennel').val();
       const room = $('#room').val();
       const selectedRoomType = getSelectedRoomType();
+      const familyKennelMode = getSelectedPetAssignmentMode();
+      const familyPetAssignments = familyKennelMode === 'individual' ? getSelectedFamilyPetAssignments() : {};
 
       if (!customer || pet.length === 0 || !service) {
         $('#alert_message').text('Please fill in all required fields.');
@@ -1490,19 +1736,25 @@
         return;
       }
 
-      if (isBoarding && !room) {
+      if (isBoarding && familyKennelMode !== 'individual' && !room) {
         $('#alert_message').text('Please select a room for the boarding appointment.');
         alert_modal.showModal();
         return;
       }
 
-      if (isBoarding && selectedRoomType === 'standard' && !kennel) {
+      if (isBoarding && familyKennelMode === 'individual' && hasMissingFamilyPetAssignments()) {
+        $('#alert_message').text('Please assign a room and kennel (for standard rooms) to each selected pet.');
+        alert_modal.showModal();
+        return;
+      }
+
+      if (isBoarding && selectedRoomType === 'standard' && familyKennelMode === 'shared' && !kennel) {
         $('#alert_message').text('Please select a kennel for the boarding appointment.');
         alert_modal.showModal();
         return;
       }
 
-      if (isBoarding && selectedRoomType === 'standard') {
+      if (isBoarding && familyKennelMode !== 'individual' && selectedRoomType === 'standard') {
         const roomKennelIds = getSelectedRoomKennelIds();
         if (kennel && roomKennelIds.length > 0 && !roomKennelIds.includes(String(kennel))) {
           $('#alert_message').text('The selected kennel does not belong to the selected room.');
@@ -1551,9 +1803,10 @@
               'X-CSRF-TOKEN': '{{ csrf_token() }}'
             },
             data: {
-              room_id: room,
-              kennel_id: selectedRoomType === 'standard' ? kennel : null,
+              room_id: familyKennelMode === 'shared' ? room : null,
+              kennel_id: selectedRoomType === 'standard' && familyKennelMode === 'shared' ? kennel : null,
               pet_ids: pet,
+              family_pet_assignments: familyPetAssignments,
               boarding_start_datetime: boardingStart,
               boarding_end_datetime: boardingEnd,
               appointment_id: '{{ $appointment->id }}'

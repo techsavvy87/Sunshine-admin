@@ -130,7 +130,13 @@
                   $petFlow = is_array($petFlow) ? $petFlow : [];
                   $effectivePetFlow = array_merge($allFlows, $petFlow);
                   $petOtherItemsDescription = old('pet_specific.' . $petIdKey . '.other_items_description', $effectivePetFlow['other_items_description'] ?? '');
-                  $petFleaTickChecked = old('pet_specific.' . $petIdKey . '.flea_tick', $effectivePetFlow['flea_tick'] ?? false);
+                  $legacyFleaTickValue = $effectivePetFlow['flea_tick'] ?? null;
+                  $legacyFleaTickTruthy = in_array($legacyFleaTickValue, [true, 'true', 1, '1'], true);
+                  $petFleaTickPrevention = old(
+                    'pet_specific.' . $petIdKey . '.flea_tick_prevention',
+                    $effectivePetFlow['flea_tick_prevention'] ?? ($legacyFleaTickValue !== null ? ($legacyFleaTickTruthy ? 'yes' : 'no') : '')
+                  );
+                  $petFleaTickPreventionType = old('pet_specific.' . $petIdKey . '.flea_tick_prevention_type', $effectivePetFlow['flea_tick_prevention_type'] ?? '');
 
                   $dryFoodRows = [];
                   if (isset($effectivePetFlow['dry_food_list']) && is_array($effectivePetFlow['dry_food_list']) && count($effectivePetFlow['dry_food_list']) > 0) {
@@ -169,6 +175,7 @@
                       'dispense_pm' => !empty($effectivePetFlow['meds']['dispense_pm']),
                       'dispense_rest' => !empty($effectivePetFlow['meds']['dispense_rest']),
                       'dispense_before_bed' => false,
+                      'dispense_prn' => !empty($effectivePetFlow['meds']['dispense_prn']),
                       'dispense_custom_time' => false,
                       'meal_condition' => null,
                       'custom_time' => '',
@@ -178,7 +185,7 @@
                   if (count($medicationRows) === 0) {
                     $medicationRows[] = [
                       'name' => '', 'amount' => '', 'dispense_am' => false, 'dispense_pm' => false,
-                      'dispense_rest' => false, 'dispense_before_bed' => false, 'dispense_custom_time' => false,
+                      'dispense_rest' => false, 'dispense_before_bed' => false, 'dispense_prn' => false, 'dispense_custom_time' => false,
                       'meal_condition' => null, 'custom_time' => ''
                     ];
                   }
@@ -198,10 +205,54 @@
                   <div>
                     <p class="font-semibold mb-2 text-base">Pet Information</p>
                     <div class="space-y-3 ms-2">
-                      <label class="label cursor-pointer justify-start gap-2">
-                        <input type="checkbox" class="checkbox checkbox-sm boarding-flea-tick-checkbox" name="pet_specific[{{ $petIdKey }}][flea_tick]" value="1" data-pet-id="{{ $pet->id }}" {{ $petFleaTickChecked ? 'checked' : '' }} />
-                        <span class="label-text">Flea/Tick</span>
-                      </label>
+                      <div>
+                        <p class="font-medium mb-2">Is your dog on flea/tick prevention?</p>
+                        <div class="flex items-center gap-4 flex-wrap">
+                          <label class="label cursor-pointer justify-start gap-2 p-0">
+                            <input
+                              type="radio"
+                              class="radio radio-sm boarding-flea-prevention-radio"
+                              name="pet_specific[{{ $petIdKey }}][flea_tick_prevention]"
+                              value="yes"
+                              data-pet-id="{{ $pet->id }}"
+                              {{ $petFleaTickPrevention === 'yes' ? 'checked' : '' }}
+                            />
+                            <span class="label-text">Yes</span>
+                          </label>
+                          <label class="label cursor-pointer justify-start gap-2 p-0">
+                            <input
+                              type="radio"
+                              class="radio radio-sm boarding-flea-prevention-radio"
+                              name="pet_specific[{{ $petIdKey }}][flea_tick_prevention]"
+                              value="no"
+                              data-pet-id="{{ $pet->id }}"
+                              {{ $petFleaTickPrevention === 'no' ? 'checked' : '' }}
+                            />
+                            <span class="label-text">No</span>
+                          </label>
+                        </div>
+                        <div
+                          class="mt-2 boarding-flea-prevention-type-wrapper"
+                          data-pet-id="{{ $pet->id }}"
+                          style="{{ $petFleaTickPrevention === 'yes' ? '' : 'display: none;' }}"
+                        >
+                          <label class="label p-0 mb-1">
+                            <span class="label-text">Prevention Type</span>
+                          </label>
+                          <select
+                            class="select select-bordered w-full select-sm boarding-flea-prevention-type"
+                            name="pet_specific[{{ $petIdKey }}][flea_tick_prevention_type]"
+                            data-pet-id="{{ $pet->id }}"
+                          >
+                            <option value="">Select prevention type</option>
+                            <option value="Bravecto" {{ $petFleaTickPreventionType === 'Bravecto' ? 'selected' : '' }}>Bravecto</option>
+                            <option value="Heartgard" {{ $petFleaTickPreventionType === 'Heartgard' ? 'selected' : '' }}>Heartgard</option>
+                            <option value="NexGard" {{ $petFleaTickPreventionType === 'NexGard' ? 'selected' : '' }}>NexGard</option>
+                            <option value="Simparica" {{ $petFleaTickPreventionType === 'Simparica' ? 'selected' : '' }}>Simparica</option>
+                            <option value="Other" {{ $petFleaTickPreventionType === 'Other' ? 'selected' : '' }}>Other</option>
+                          </select>
+                        </div>
+                      </div>
                       <div>
                         <p class="font-medium mb-2">Items:</p>
                         <div class="mt-2">
@@ -307,6 +358,7 @@
                               $rowDispensePm = old('pet_specific.' . $petIdKey . '.meds_list.' . $index . '.dispense_pm', $medicationRow['dispense_pm'] ?? false);
                               $rowDispenseRest = old('pet_specific.' . $petIdKey . '.meds_list.' . $index . '.dispense_rest', $medicationRow['dispense_rest'] ?? false);
                               $rowDispenseBeforeBed = old('pet_specific.' . $petIdKey . '.meds_list.' . $index . '.dispense_before_bed', $medicationRow['dispense_before_bed'] ?? false);
+                              $rowDispensePrn = old('pet_specific.' . $petIdKey . '.meds_list.' . $index . '.dispense_prn', $medicationRow['dispense_prn'] ?? false);
                               $rowDispenseCustomTime = old('pet_specific.' . $petIdKey . '.meds_list.' . $index . '.dispense_custom_time', $medicationRow['dispense_custom_time'] ?? false);
                               $rowCustomTime = old('pet_specific.' . $petIdKey . '.meds_list.' . $index . '.custom_time', $medicationRow['custom_time'] ?? '');
                             @endphp
@@ -330,6 +382,7 @@
                                   <label class="flex items-center gap-2"><input type="checkbox" class="checkbox checkbox-xs boarding-med-dispense-pm" name="pet_specific[{{ $petIdKey }}][meds_list][{{ $index }}][dispense_pm]" value="1" {{ $rowDispensePm ? 'checked' : '' }} /><span class="text-sm">PM</span></label>
                                   <label class="flex items-center gap-2"><input type="checkbox" class="checkbox checkbox-xs boarding-med-dispense-rest" name="pet_specific[{{ $petIdKey }}][meds_list][{{ $index }}][dispense_rest]" value="1" {{ $rowDispenseRest ? 'checked' : '' }} /><span class="text-sm">Rest</span></label>
                                   <label class="flex items-center gap-2"><input type="checkbox" class="checkbox checkbox-xs boarding-med-dispense-before-bed" name="pet_specific[{{ $petIdKey }}][meds_list][{{ $index }}][dispense_before_bed]" value="1" {{ $rowDispenseBeforeBed ? 'checked' : '' }} /><span class="text-sm">Before Bed</span></label>
+                                  <label class="flex items-center gap-2"><input type="checkbox" class="checkbox checkbox-xs boarding-med-dispense-prn" name="pet_specific[{{ $petIdKey }}][meds_list][{{ $index }}][dispense_prn]" value="1" {{ $rowDispensePrn ? 'checked' : '' }} /><span class="text-sm">PRN</span></label>
                                   <label class="flex items-center gap-2"><input type="checkbox" class="checkbox checkbox-xs boarding-med-dispense-custom-time" name="pet_specific[{{ $petIdKey }}][meds_list][{{ $index }}][dispense_custom_time]" value="1" {{ $rowDispenseCustomTime ? 'checked' : '' }} /><span class="text-sm">Custom Time</span></label>
                                 </div>
                               </div>
@@ -606,6 +659,7 @@
         '<label class="flex items-center gap-2"><input type="checkbox" class="checkbox checkbox-xs boarding-med-dispense-pm" name="pet_specific[' + petId + '][meds_list][' + index + '][dispense_pm]" value="1" /><span class="text-sm">PM</span></label>' +
         '<label class="flex items-center gap-2"><input type="checkbox" class="checkbox checkbox-xs boarding-med-dispense-rest" name="pet_specific[' + petId + '][meds_list][' + index + '][dispense_rest]" value="1" /><span class="text-sm">Rest</span></label>' +
         '<label class="flex items-center gap-2"><input type="checkbox" class="checkbox checkbox-xs boarding-med-dispense-before-bed" name="pet_specific[' + petId + '][meds_list][' + index + '][dispense_before_bed]" value="1" /><span class="text-sm">Before Bed</span></label>' +
+        '<label class="flex items-center gap-2"><input type="checkbox" class="checkbox checkbox-xs boarding-med-dispense-prn" name="pet_specific[' + petId + '][meds_list][' + index + '][dispense_prn]" value="1" /><span class="text-sm">PRN</span></label>' +
         '<label class="flex items-center gap-2"><input type="checkbox" class="checkbox checkbox-xs boarding-med-dispense-custom-time" name="pet_specific[' + petId + '][meds_list][' + index + '][dispense_custom_time]" value="1" /><span class="text-sm">Custom Time</span></label>' +
         '</div></div>' +
         '<div class="grid grid-cols-1 md:grid-cols-2 gap-3"><div><p class="text-sm mb-1">Meal Condition:</p><select class="select select-bordered w-full select-sm boarding-med-meal-condition" name="pet_specific[' + petId + '][meds_list][' + index + '][meal_condition]"><option value="">Select option</option><option value="after_meal">After Meal</option><option value="before_meal">Before Meal</option><option value="empty_stomach">Empty Stomach</option></select></div>' +
@@ -657,47 +711,27 @@
       });
     }
 
-    function getBoardingFleaTickCheckedCount() {
-      return document.querySelectorAll('.boarding-flea-tick-checkbox:checked').length;
-    }
-
-    const boardingTaxRate = parseFloat(@json((float) config('billing.state_tax_rate', 7)));
-    const boardingDiscountAmount = parseFloat(@json((float) ($boardingPricing['family_discount_amount'] ?? 0)));
-    const boardingFleaTickUnitAmount = 50;
-    const boardingEstimatedPriceInput = document.getElementById('estimated_price');
-    const boardingInitialCheckedCount = getBoardingFleaTickCheckedCount();
-    const boardingBaseGrossBeforeFlea = (() => {
-      if (!boardingEstimatedPriceInput) {
-        return 0;
-      }
-
-      const currentPrice = parseFloat(boardingEstimatedPriceInput.value);
-      if (Number.isNaN(currentPrice)) {
-        return 0;
-      }
-
-      const taxFactor = 1 + (boardingTaxRate / 100);
-      return taxFactor > 0
-        ? ((currentPrice / taxFactor) + boardingDiscountAmount - (boardingInitialCheckedCount * boardingFleaTickUnitAmount))
-        : (currentPrice + boardingDiscountAmount - (boardingInitialCheckedCount * boardingFleaTickUnitAmount));
-    })();
-
-    function updateBoardingEstimatedPriceFromFleaTick() {
-      if (!boardingEstimatedPriceInput) {
+    function updateFleaPreventionTypeVisibility(petId, value) {
+      const wrapper = document.querySelector('.boarding-flea-prevention-type-wrapper[data-pet-id="' + petId + '"]');
+      const select = wrapper ? wrapper.querySelector('.boarding-flea-prevention-type') : null;
+      if (!wrapper || !select) {
         return;
       }
 
-      const checkedCount = getBoardingFleaTickCheckedCount();
-      const feeTotal = checkedCount * boardingFleaTickUnitAmount;
-      const taxFactor = 1 + (boardingTaxRate / 100);
-      const updatedPrice = Math.max(0, (boardingBaseGrossBeforeFlea + feeTotal - boardingDiscountAmount) * taxFactor);
-
-      boardingEstimatedPriceInput.value = updatedPrice.toFixed(2);
+      const showType = value === 'yes';
+      wrapper.style.display = showType ? '' : 'none';
+      if (!showType) {
+        select.value = '';
+      }
     }
 
+    document.querySelectorAll('.boarding-flea-prevention-radio:checked').forEach(function(radio) {
+      updateFleaPreventionTypeVisibility(radio.dataset.petId, radio.value);
+    });
+
     document.addEventListener('change', function(event) {
-      if (event.target && event.target.classList && event.target.classList.contains('boarding-flea-tick-checkbox')) {
-        updateBoardingEstimatedPriceFromFleaTick();
+      if (event.target && event.target.classList && event.target.classList.contains('boarding-flea-prevention-radio')) {
+        updateFleaPreventionTypeVisibility(event.target.dataset.petId, event.target.value);
       }
     });
 

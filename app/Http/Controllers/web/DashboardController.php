@@ -37,12 +37,13 @@ class DashboardController extends Controller
 
         $fleaItems = InvoiceItem::where('invoice_id', $invoice->id)
             ->where('item_type', 'service')
-            ->where('item_name', 'Flea/Tick Fee')
+            ->whereIn('item_name', ['Flea/Tick Fee', 'Flea/Tick Detection Fee'])
             ->get();
 
         if ($fleaTickFee > 0) {
             $existingItem = $fleaItems->first();
             if ($existingItem) {
+                $existingItem->item_name = 'Flea/Tick Detection Fee';
                 $existingItem->price = $fleaTickFee;
                 $existingItem->save();
 
@@ -52,7 +53,7 @@ class DashboardController extends Controller
             } else {
                 InvoiceItem::create([
                     'invoice_id' => $invoice->id,
-                    'item_name' => 'Flea/Tick Fee',
+                    'item_name' => 'Flea/Tick Detection Fee',
                     'price' => $fleaTickFee,
                     'item_type' => 'service',
                 ]);
@@ -71,7 +72,7 @@ class DashboardController extends Controller
         }
 
         $fleaTickData = $processFlows['check_pet']['flea_tick_data'] ?? [];
-        if (!is_array($fleaTickData) || empty($fleaTickData)) {
+        if (!is_array($fleaTickData)) {
             return;
         }
 
@@ -120,10 +121,7 @@ class DashboardController extends Controller
                 $existingPetFlows = [];
             }
 
-            $existingValue = $existingPetFlows['flea_tick'] ?? ($updatedCheckinFlows['flea_tick'] ?? null);
-            $finalFleaTick = boardingValueIsTruthy($existingValue) || boardingValueIsTruthy($workflowFleaTick);
-
-            $existingPetFlows['flea_tick'] = $finalFleaTick;
+            $existingPetFlows['flea_tick_detected'] = boardingValueIsTruthy($workflowFleaTick);
             $petSpecific[$petIdKey] = $existingPetFlows;
         }
 
@@ -372,6 +370,11 @@ class DashboardController extends Controller
             ->find($id);
         $dbEstimatedPrice = $appointment->estimated_price ?? 0;
 
+        $checkedIn = Checkin::where('appointment_id', $appointment->id)->first();
+        if ($checkedIn && $checkedIn->flows) {
+            $checkedIn->flows = json_decode($checkedIn->flows, true);
+        }
+
         $resolveAppointmentServicePrice = function ($service, $petSize, $metadata = null) {
             if (!$service) {
                 return 0;
@@ -434,16 +437,14 @@ class DashboardController extends Controller
                 $pricingPets = collect([$appointment->pet]);
             }
 
+            $boardingPricingBreakdown = getBoardingPricingBreakdown($appointment, null, $appointment->service);
+            $boardingBaseTotal = floatval($boardingPricingBreakdown['boarding_subtotal'] ?? 0)
+                + floatval($boardingPricingBreakdown['holiday_surcharge_amount'] ?? 0);
+            $familyDiscountAmount = floatval($boardingPricingBreakdown['family_discount_amount'] ?? 0);
+
+            $additionalServiceTotal = 0;
             foreach ($pricingPets as $pet) {
                 $petSize = $pet->size ?? ($appointment->pet->size ?? 'medium');
-                $priceAppointment = clone $appointment;
-                $priceAppointment->pet_id = $pet->id ?? $appointment->pet_id;
-
-                $boardingPrice = getBoardingServicePrice($appointment->service, $priceAppointment);
-                $petTotal = $boardingPrice !== null
-                    ? $boardingPrice
-                    : $resolveAppointmentServicePrice($appointment->service, $petSize, $appointment->metadata);
-
                 $petAdditionalServiceIds = collect($additionalServicesByPet[$pet->id ?? 0] ?? [])
                     ->map(fn ($serviceId) => (int) $serviceId)
                     ->filter(fn ($serviceId) => $serviceId > 0)
@@ -456,11 +457,14 @@ class DashboardController extends Controller
                         continue;
                     }
 
-                    $petTotal += $resolveAppointmentServicePrice($service, $petSize);
+                    $additionalServiceTotal += $resolveAppointmentServicePrice($service, $petSize);
                 }
-
-                $computedEstimatedPrice += $petTotal;
             }
+
+            $checkedInFlowsForPricing = is_array(optional($checkedIn)->flows) ? $checkedIn->flows : [];
+            $fleaTickFee = floatval(getBoardingFleaTickBreakdown($appointment, $checkedInFlowsForPricing)['amount'] ?? 0);
+
+            $computedEstimatedPrice = max(0, $boardingBaseTotal + $additionalServiceTotal - $familyDiscountAmount + $fleaTickFee);
         } else {
             $computedEstimatedPrice = $resolveAppointmentServicePrice($appointment->service, $appointment->pet->size, $appointment->metadata);
 
@@ -506,12 +510,6 @@ class DashboardController extends Controller
         $staffs = User::whereHas('roles', function ($query) {
             $query->whereNot('title', 'customer');
         })->with('profile')->get();
-
-        $checkedIn = Checkin::where('appointment_id', $appointment->id)->first();
-
-        if ($checkedIn && $checkedIn->flows) {
-            $checkedIn->flows = json_decode($checkedIn->flows, true);
-        }
 
         // For boarding services, try to load process for the appointment date
         if (isBoardingService($appointment->service)) {
@@ -677,6 +675,7 @@ class DashboardController extends Controller
             $treatments = [];
             $incidentRows = [];
             $notes = [];
+            $prnMeds = [];
 
             if (!empty($checkin?->notes)) {
                 $notes[] = 'Check-in: ' . trim((string) $checkin->notes);
@@ -757,6 +756,15 @@ class DashboardController extends Controller
                     $label = $processDate !== '' ? 'Process (' . $processDate . ')' : 'Process';
                     $notes[] = $label . ': ' . $processData['notes'];
                 }
+
+                $prnRecord = $this->staySummaryGetFlowValueForCandidates(data_get($flows, 'prn_meds.prn_records', []), $workflowCandidates);
+                if (is_array($prnRecord)) {
+                    $medName = trim((string) ($prnRecord['medication_name'] ?? ''));
+                    $amount = trim((string) ($prnRecord['amount'] ?? ''));
+                    if ($medName !== '') {
+                        $prnMeds[] = $medName . ($amount !== '' ? ' - ' . $amount : '');
+                    }
+                }
             }
 
             foreach ($incidents as $incident) {
@@ -786,13 +794,15 @@ class DashboardController extends Controller
             $treatments = collect($treatments)->filter()->unique()->values()->all();
             $incidentRows = collect($incidentRows)->filter()->unique()->values()->all();
             $notes = collect($notes)->filter()->unique()->values()->all();
+            $prnMeds = collect($prnMeds)->filter()->values()->all();
 
             $hasData = !empty($dnes)
                 || !empty($noseToTailIssues)
                 || !empty($treatments)
                 || !empty($incidentRows)
                 || !empty($behavior)
-                || !empty($notes);
+                || !empty($notes)
+                || !empty($prnMeds);
 
             return [
                 'pet_id' => $petId,
@@ -800,6 +810,7 @@ class DashboardController extends Controller
                 'dnes' => $dnes,
                 'nose_to_tail' => $noseToTailIssues,
                 'treatments' => $treatments,
+                'prn_meds' => $prnMeds,
                 'incidents' => $incidentRows,
                 'behavior' => $behavior,
                 'notes' => $notes,
@@ -1876,6 +1887,7 @@ class DashboardController extends Controller
 
             $isFamilyAppointment = $pets->count() > 1;
             $petSpecific = isset($flows['pet_specific']) && is_array($flows['pet_specific']) ? $flows['pet_specific'] : [];
+            $legacyPetsCare = isset($flows['pets_care']) && is_array($flows['pets_care']) ? $flows['pets_care'] : [];
 
             foreach ($pets as $pet) {
                 if (!$pet) {
@@ -1888,8 +1900,13 @@ class DashboardController extends Controller
                     $petFlow = [];
                 }
 
-                $effectiveFlows = array_merge($flows, $petFlow);
-                unset($effectiveFlows['pet_specific']);
+                $legacyPetFlow = $legacyPetsCare[$petIdKey] ?? ($legacyPetsCare[$pet->id] ?? []);
+                if (!is_array($legacyPetFlow)) {
+                    $legacyPetFlow = [];
+                }
+
+                $effectiveFlows = array_merge($flows, $legacyPetFlow, $petFlow);
+                unset($effectiveFlows['pet_specific'], $effectiveFlows['pets_care']);
 
                 $dryFood = $effectiveFlows['dry_food'] ?? [];
                 $wetFood = $effectiveFlows['wet_food'] ?? [];
@@ -2462,6 +2479,9 @@ class DashboardController extends Controller
             if ($isTruthy($item['dispense_before_bed'] ?? null)) {
                 $labels[] = 'Before Sleep';
             }
+            if ($isTruthy($item['dispense_prn'] ?? null)) {
+                $labels[] = 'PRN';
+            }
             if ($isTruthy($item['dispense_custom_time'] ?? null)) {
                 $custom = trim((string) ($item['custom_time'] ?? ''));
                 $labels[] = $custom !== '' ? 'Custom Time: ' . $custom : 'Custom Time';
@@ -2469,6 +2489,16 @@ class DashboardController extends Controller
 
             return array_values(array_unique($labels));
         };
+
+        $requestCareNotes = trim((string) $request->query('care_notes', ''));
+        $requestCareNotesByPetRaw = $request->query('care_notes_by_pet', '');
+        $requestCareNotesByPet = [];
+        if (is_string($requestCareNotesByPetRaw) && trim($requestCareNotesByPetRaw) !== '') {
+            $decodedCareNotesByPet = json_decode($requestCareNotesByPetRaw, true);
+            if (is_array($decodedCareNotesByPet)) {
+                $requestCareNotesByPet = $decodedCareNotesByPet;
+            }
+        }
 
         foreach ($familyPets as $pet) {
             $petAge = null;
@@ -2508,6 +2538,20 @@ class DashboardController extends Controller
             $petFlows = array_merge($checkinFlows, $currentLegacyPetFlows, $currentPetSpecificFlows);
             unset($petFlows['pet_specific'], $petFlows['pets_care']);
 
+            $careNotes = trim((string) ($requestCareNotesByPet[$petIdKey] ?? ($requestCareNotesByPet[$pet->id] ?? '')));
+            if ($careNotes === '') {
+                $careNotes = trim((string) ($petFlows['care_notes'] ?? ''));
+            }
+            if ($careNotes === '') {
+                $careNotes = $requestCareNotes;
+            }
+            if ($careNotes === '') {
+                $careNotes = trim((string) ($checkin->notes ?? ''));
+            }
+            if ($careNotes === '') {
+                $careNotes = trim((string) ($petFlows['pet_notes'] ?? ''));
+            }
+
             $medsFlows = is_array($petFlows['meds'] ?? null) ? $petFlows['meds'] : [];
             $medsListFlows = is_array($petFlows['meds_list'] ?? null) ? $petFlows['meds_list'] : [];
 
@@ -2522,6 +2566,7 @@ class DashboardController extends Controller
                     !empty($medsListFlows) ||
                     $isTruthy($medsFlows['dispense_am'] ?? null) ||
                     $isTruthy($medsFlows['dispense_pm'] ?? null) ||
+                    $isTruthy($medsFlows['dispense_prn'] ?? null) ||
                     $isTruthy($petFlows['medications_am'] ?? null) ||
                     $isTruthy($petFlows['medications_pm'] ?? null);
             }
@@ -2614,6 +2659,7 @@ class DashboardController extends Controller
                 'medicationNotes' => $medicationNotes,
                 'restRequired' => $restRequired,
                 'restNote' => $restNote,
+                'careNotes' => $careNotes,
             ];
         }
 
@@ -2639,6 +2685,17 @@ class DashboardController extends Controller
 
     private function getAppointmentAssignmentLocation(Appointment $appointment): array
     {
+        $perPetDetails = $appointment->family_pet_assignment_details;
+        if (!empty($perPetDetails)) {
+            $firstDetail = $perPetDetails[0] ?? [];
+
+            return [
+                'label' => (string) ($appointment->family_pet_assignment_label ?? 'Not assigned'),
+                'room_name' => (string) ($firstDetail['room_name'] ?? ''),
+                'kennel_name' => (string) ($firstDetail['kennel_name'] ?? ''),
+            ];
+        }
+
         $metadata = is_array($appointment->metadata) ? $appointment->metadata : [];
         $roomName = trim((string) ($metadata['assignment_room_name'] ?? optional($appointment->catRoom)->name ?? ''));
         $roomType = strtolower(trim((string) ($metadata['assignment_room_type'] ?? '')));

@@ -300,9 +300,16 @@ if (!function_exists('getBoardingFleaTickBreakdown')) {
         }
 
         $decodedFlows = is_array($flows) ? $flows : [];
+        $checkPetFleaTickData = [];
+        if (isset($decodedFlows['check_pet']) && is_array($decodedFlows['check_pet'])) {
+            $checkPetFleaTickData = isset($decodedFlows['check_pet']['flea_tick_data']) && is_array($decodedFlows['check_pet']['flea_tick_data'])
+                ? $decodedFlows['check_pet']['flea_tick_data']
+                : [];
+        }
         $petSpecific = isset($decodedFlows['pet_specific']) && is_array($decodedFlows['pet_specific'])
             ? $decodedFlows['pet_specific']
             : [];
+        $isFamilyAppointment = $pets->count() > 1;
 
         $checkedPetCount = 0;
 
@@ -317,8 +324,19 @@ if (!function_exists('getBoardingFleaTickBreakdown')) {
                 $petFlows = [];
             }
 
-            $fleaTickValue = $petFlows['flea_tick'] ?? ($decodedFlows['flea_tick'] ?? null);
-            if (boardingValueIsTruthy($fleaTickValue)) {
+            $workflowKey = $isFamilyAppointment ? $petIdKey : (string) ($appointment->id ?? '');
+            $fleaTickDetectedValue = $checkPetFleaTickData[$workflowKey] ?? ($checkPetFleaTickData[(int) $workflowKey] ?? null);
+
+            if ($fleaTickDetectedValue === null) {
+                $fleaTickDetectedValue = $petFlows['flea_tick_detected'] ?? ($decodedFlows['flea_tick_detected'] ?? null);
+            }
+
+            // Legacy fallback for historical check-ins that stored a generic flea_tick flag.
+            if ($fleaTickDetectedValue === null) {
+                $fleaTickDetectedValue = $petFlows['flea_tick'] ?? ($decodedFlows['flea_tick'] ?? null);
+            }
+
+            if (boardingValueIsTruthy($fleaTickDetectedValue)) {
                 $checkedPetCount++;
             }
         }

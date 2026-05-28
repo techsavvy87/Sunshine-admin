@@ -339,6 +339,9 @@
             if (!empty($medicationRow['dispense_before_bed']) && ($medicationRow['dispense_before_bed'] === true || $medicationRow['dispense_before_bed'] === 'true')) {
               $dispenseLabels[] = 'Before Bed';
             }
+            if (!empty($medicationRow['dispense_prn']) && ($medicationRow['dispense_prn'] === true || $medicationRow['dispense_prn'] === 'true')) {
+              $dispenseLabels[] = 'PRN';
+            }
             if (!empty($medicationRow['dispense_custom_time']) && ($medicationRow['dispense_custom_time'] === true || $medicationRow['dispense_custom_time'] === 'true')) {
               $dispenseLabels[] = !empty($customTime) ? 'Custom Time (' . $customTime . ')' : 'Custom Time';
             }

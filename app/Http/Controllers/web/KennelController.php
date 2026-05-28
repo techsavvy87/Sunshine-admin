@@ -65,8 +65,7 @@ class KennelController extends Controller
             return collect([$appointment->pet])->filter();
         };
 
-        $boardingAppointmentsByKennel = Appointment::with(['pet', 'customer'])
-            ->whereIn('kennel_id', $kennelIds)
+        $boardingAppointments = Appointment::with(['pet', 'customer'])
             ->whereNotIn('status', ['cancelled', 'canceled', 'no_show'])
             ->whereHas('service.category', function ($query) {
                 $query->whereRaw('LOWER(name) LIKE ?', ['%boarding%']);
@@ -76,13 +75,82 @@ class KennelController extends Controller
             ->orderBy('date')
             ->orderBy('start_time')
             ->orderBy('id')
-            ->get()
-            ->groupBy('kennel_id');
+            ->get();
 
-        $kennels->getCollection()->transform(function ($kennel) use ($boardingAppointmentsByKennel, $collectAppointmentPets) {
-            $appointments = $boardingAppointmentsByKennel->get($kennel->id, collect());
+        $boardingAppointmentsByKennel = collect();
 
-            $kennel->assigned_pet_bookings = $appointments->map(function ($appointment) use ($collectAppointmentPets) {
+        foreach ($boardingAppointments as $appointment) {
+            $appointmentPetsById = $collectAppointmentPets($appointment)
+                ->keyBy('id');
+
+            $assignmentDetails = collect($appointment->family_pet_assignment_details ?? [])
+                ->filter(function ($detail) use ($kennelIds) {
+                    $kennelId = (int) ($detail['kennel_id'] ?? 0);
+                    return $kennelId > 0 && $kennelIds->contains($kennelId);
+                })
+                ->groupBy(function ($detail) {
+                    return (int) ($detail['kennel_id'] ?? 0);
+                });
+
+            if ($assignmentDetails->isNotEmpty()) {
+                foreach ($assignmentDetails as $kennelId => $detailsForKennel) {
+                    $kennelPets = $detailsForKennel
+                        ->map(function ($detail) use ($appointmentPetsById) {
+                            $petId = (int) ($detail['pet_id'] ?? 0);
+                            $pet = $appointmentPetsById->get($petId);
+
+                            if ($pet) {
+                                return $pet;
+                            }
+
+                            if ($petId <= 0) {
+                                return null;
+                            }
+
+                            return (object) [
+                                'id' => $petId,
+                                'name' => (string) ($detail['pet_name'] ?? 'Pet'),
+                                'pet_img' => null,
+                            ];
+                        })
+                        ->filter()
+                        ->unique('id')
+                        ->values();
+
+                    if ($kennelPets->isEmpty()) {
+                        continue;
+                    }
+
+                    $boardingAppointmentsByKennel->put(
+                        (int) $kennelId,
+                        $boardingAppointmentsByKennel->get((int) $kennelId, collect())->push((object) [
+                            'appointment' => $appointment,
+                            'pets' => $kennelPets,
+                        ])
+                    );
+                }
+
+                continue;
+            }
+
+            $legacyKennelId = (int) ($appointment->kennel_id ?? 0);
+            if ($legacyKennelId > 0 && $kennelIds->contains($legacyKennelId)) {
+                $boardingAppointmentsByKennel->put(
+                    $legacyKennelId,
+                    $boardingAppointmentsByKennel->get($legacyKennelId, collect())->push((object) [
+                        'appointment' => $appointment,
+                        'pets' => $collectAppointmentPets($appointment)->unique('id')->values(),
+                    ])
+                );
+            }
+        }
+
+        $kennels->getCollection()->transform(function ($kennel) use ($boardingAppointmentsByKennel) {
+            $entries = $boardingAppointmentsByKennel->get($kennel->id, collect());
+
+            $kennel->assigned_pet_bookings = $entries->map(function ($entry) {
+                $appointment = $entry->appointment;
+
                 return (object) [
                     'appointment_id' => $appointment->id,
                     'appointment' => $appointment,
@@ -90,7 +158,7 @@ class KennelController extends Controller
                     'end_date' => $appointment->end_date
                         ? Carbon::parse($appointment->end_date)->toDateString()
                         : Carbon::parse($appointment->date)->toDateString(),
-                    'pets' => $collectAppointmentPets($appointment)->unique('id')->values(),
+                    'pets' => collect($entry->pets ?? [])->filter()->unique('id')->values(),
                 ];
             })->values();
 
@@ -108,7 +176,7 @@ class KennelController extends Controller
 
         foreach ($kennels->getCollection() as $kennel) {
             $availabilityMatrix[$kennel->id] = [];
-            $appointments = $boardingAppointmentsByKennel->get($kennel->id, collect());
+            $entries = $boardingAppointmentsByKennel->get($kennel->id, collect());
 
             foreach ($dateColumns as $columnDate) {
                 $dateString = $columnDate->toDateString();
@@ -121,7 +189,8 @@ class KennelController extends Controller
                     continue;
                 }
 
-                $dayAppointments = $appointments->filter(function ($appointment) use ($dateString) {
+                $dayEntries = $entries->filter(function ($entry) use ($dateString) {
+                    $appointment = $entry->appointment;
                     $start = Carbon::parse($appointment->date)->toDateString();
                     $end = $appointment->end_date
                         ? Carbon::parse($appointment->end_date)->toDateString()
@@ -130,7 +199,7 @@ class KennelController extends Controller
                     return $start <= $dateString && $end >= $dateString;
                 })->values();
 
-                if ($dayAppointments->isEmpty()) {
+                if ($dayEntries->isEmpty()) {
                     $availabilityMatrix[$kennel->id][$dateString] = [
                         'state' => 'empty',
                         'text' => 'Empty',
@@ -138,38 +207,42 @@ class KennelController extends Controller
                     continue;
                 }
 
-                $checkins = $dayAppointments->filter(function ($appointment) use ($dateString) {
+                $checkins = $dayEntries->filter(function ($entry) use ($dateString) {
+                    $appointment = $entry->appointment;
                     return Carbon::parse($appointment->date)->toDateString() === $dateString;
                 })->values();
 
-                $checkouts = $dayAppointments->filter(function ($appointment) use ($dateString) {
+                $checkouts = $dayEntries->filter(function ($entry) use ($dateString) {
+                    $appointment = $entry->appointment;
                     $end = $appointment->end_date
                         ? Carbon::parse($appointment->end_date)->toDateString()
                         : Carbon::parse($appointment->date)->toDateString();
                     return $end === $dateString;
                 })->values();
 
-                $collectPetsFromAppointments = function ($appointments) {
-                    $pets = collect($appointments)->flatMap(function ($appointment) {
-                        return collect($appointment->family_pets ?? [])->filter();
-                    })->filter()->unique('id')->values();
-
-                    if ($pets->isEmpty()) {
-                        $pets = collect($appointments)->map(fn ($appointment) => $appointment->pet)->filter()->unique('id')->values();
-                    }
-
-                    return $pets;
+                $collectPetsFromEntries = function ($sourceEntries) {
+                    return collect($sourceEntries)
+                        ->flatMap(function ($entry) {
+                            return collect($entry->pets ?? [])->filter();
+                        })
+                        ->filter()
+                        ->unique('id')
+                        ->values();
                 };
 
-                $checkoutForTurnover = $checkouts->sortBy('end_time')->first();
+                $checkoutForTurnover = $checkouts->sortBy(function ($entry) {
+                    return $entry->appointment->end_time;
+                })->first();
                 $checkinForTurnover = $checkins
-                    ->reject(fn ($appointment) => $checkoutForTurnover && $appointment->id === $checkoutForTurnover->id)
-                    ->sortBy('start_time')
+                    ->reject(fn ($entry) => $checkoutForTurnover && $entry->appointment->id === $checkoutForTurnover->appointment->id)
+                    ->sortBy(function ($entry) {
+                        return $entry->appointment->start_time;
+                    })
                     ->first();
 
                 if ($checkoutForTurnover && $checkinForTurnover) {
-                    $checkoutTurnoverPets = $collectPetsFromAppointments([$checkoutForTurnover]);
-                    $checkinTurnoverPets = $collectPetsFromAppointments([$checkinForTurnover]);
+                    $checkoutTurnoverPets = $collectPetsFromEntries([$checkoutForTurnover]);
+                    $checkinTurnoverPets = $collectPetsFromEntries([$checkinForTurnover]);
 
                     $availabilityMatrix[$kennel->id][$dateString] = [
                         'state' => 'turnover',
@@ -188,7 +261,7 @@ class KennelController extends Controller
                 }
 
                 if ($checkins->isNotEmpty()) {
-                    $checkinPets = $collectPetsFromAppointments($checkins);
+                    $checkinPets = $collectPetsFromEntries($checkins);
 
                     $availabilityMatrix[$kennel->id][$dateString] = [
                         'state' => 'checkin',
@@ -198,7 +271,8 @@ class KennelController extends Controller
                     continue;
                 }
 
-                $stays = $dayAppointments->filter(function ($appointment) use ($dateString) {
+                $stays = $dayEntries->filter(function ($entry) use ($dateString) {
+                    $appointment = $entry->appointment;
                     $start = Carbon::parse($appointment->date)->toDateString();
                     $end = $appointment->end_date
                         ? Carbon::parse($appointment->end_date)->toDateString()
@@ -208,16 +282,10 @@ class KennelController extends Controller
                 })->values();
 
                 if ($stays->isNotEmpty()) {
-                    $stayPets = $stays->flatMap(function ($appointment) {
-                        return collect($appointment->family_pets ?? [])->filter();
-                    })->filter()->unique('id')->values();
+                    $stayPets = $collectPetsFromEntries($stays);
 
-                    if ($stayPets->isEmpty()) {
-                        $stayPets = $stays->map(fn ($appointment) => $appointment->pet)->filter()->unique('id')->values();
-                    }
-
-                    $isFamilyStay = $stays->contains(function ($appointment) {
-                        return collect($appointment->family_pets ?? [])->filter()->count() > 1;
+                    $isFamilyStay = $stays->contains(function ($entry) {
+                        return collect($entry->pets ?? [])->filter()->count() > 1;
                     });
 
                     $availabilityMatrix[$kennel->id][$dateString] = [
@@ -229,7 +297,7 @@ class KennelController extends Controller
                 }
 
                 if ($checkouts->isNotEmpty()) {
-                    $checkoutPets = $collectPetsFromAppointments($checkouts);
+                    $checkoutPets = $collectPetsFromEntries($checkouts);
 
                     $availabilityMatrix[$kennel->id][$dateString] = [
                         'state' => 'checkout',

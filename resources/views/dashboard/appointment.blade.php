@@ -337,21 +337,14 @@
         </div>
       @endif
     @endif
-    @if ($appointment->estimated_price)
+    @if (($appointment->estimated_price ?? 0) || ((float) ($dbEstimatedPrice ?? 0) > 0))
     @php
       $appointmentStateTaxRate = isBoardingService($appointment->service) ? (float) config('billing.state_tax_rate', 7) : 0;
-      $boardingPricing = isBoardingService($appointment->service) ? getBoardingPricingBreakdown($appointment) : null;
-
-      if ($boardingPricing) {
-        // For boarding, use the calculated total which already includes holidays and discounts
-        $estimatedPrice = floatval($boardingPricing['total']);
+      if ((float) ($dbEstimatedPrice ?? 0) > 0) {
+        $estimatedPrice = (float) $dbEstimatedPrice;
       } else {
-        if ((float)$dbEstimatedPrice > 0) {
-          $estimatedPrice = $dbEstimatedPrice;
-        } else {
-          $chauffeurServicePrices = $chauffeurPricingData['service_prices'] ?? [];
-          $estimatedPrice = $appointment->estimated_price + array_sum($chauffeurServicePrices);
-        }
+        $chauffeurServicePrices = $chauffeurPricingData['service_prices'] ?? [];
+        $estimatedPrice = (float) ($appointment->estimated_price ?? 0) + array_sum($chauffeurServicePrices);
       }
 
       $estimatedNetPrice = $estimatedPrice;
@@ -379,7 +372,7 @@
     @endphp
     @if (!empty($appointmentFleaTickBreakdown['amount']))
     <div class="flex items-center gap-2">
-      <p class="font-medium">Flea/Tick Fee: </p>
+      <p class="font-medium">Flea/Tick Detection Fee: </p>
       <p class="text-base-content/70">${{ number_format($appointmentFleaTickBreakdown['amount'], 2) }}</p>
     </div>
     @endif
@@ -1382,7 +1375,7 @@
                       @endphp
                       <tr id="flea_tick_fee_row" class="service-row flea-tick-row" data-initial-fee="{{ number_format(($boardingFleaTickBreakdown['amount'] ?? 0), 2, '.', '') }}" style="{{ ($boardingFleaTickBreakdown['amount'] ?? 0) > 0 ? '' : 'display:none;' }}">
                         <td>{{ $row++ }}</td>
-                        <td width="56%">Flea/Tick Fee</td>
+                        <td width="56%">Flea/Tick Detection Fee</td>
                         <td>${{ number_format($boardingFleaTickBreakdown['amount'] ?? 0, 2) }}</td>
                         <td></td>
                       </tr>
@@ -1676,9 +1669,13 @@
                     $petFlow = is_array($petFlow) ? $petFlow : [];
                     $fallbackPetFlow = $flows;
                     $effectivePetFlow = array_merge($fallbackPetFlow, $petFlow);
-                    $petFleaTickChecked = !empty($effectivePetFlow['flea_tick']) && ($effectivePetFlow['flea_tick'] === true || $effectivePetFlow['flea_tick'] === 'true' || $effectivePetFlow['flea_tick'] === 1 || $effectivePetFlow['flea_tick'] === '1');
+                    $legacyFleaTickValue = $effectivePetFlow['flea_tick'] ?? null;
+                    $legacyFleaTickTruthy = in_array($legacyFleaTickValue, [true, 'true', 1, '1'], true);
+                    $petFleaTickPrevention = $effectivePetFlow['flea_tick_prevention'] ?? ($legacyFleaTickValue !== null ? ($legacyFleaTickTruthy ? 'yes' : 'no') : '');
+                    $petFleaTickPreventionType = $effectivePetFlow['flea_tick_prevention_type'] ?? '';
 
                     $petOtherItemsDescription = $effectivePetFlow['other_items_description'] ?? '';
+                    $petCareNotes = $effectivePetFlow['care_notes'] ?? '';
 
                     $dryFoodRows = [];
                     if (isset($effectivePetFlow['dry_food_list']) && is_array($effectivePetFlow['dry_food_list']) && count($effectivePetFlow['dry_food_list']) > 0) {
@@ -1717,6 +1714,7 @@
                         'dispense_pm' => !empty($effectivePetFlow['meds']['dispense_pm']) && ($effectivePetFlow['meds']['dispense_pm'] === true || $effectivePetFlow['meds']['dispense_pm'] === 'true'),
                         'dispense_rest' => !empty($effectivePetFlow['meds']['dispense_rest']) && ($effectivePetFlow['meds']['dispense_rest'] === true || $effectivePetFlow['meds']['dispense_rest'] === 'true'),
                         'dispense_before_bed' => false,
+                        'dispense_prn' => !empty($effectivePetFlow['meds']['dispense_prn']) && ($effectivePetFlow['meds']['dispense_prn'] === true || $effectivePetFlow['meds']['dispense_prn'] === 'true'),
                         'dispense_custom_time' => false,
                         'meal_condition' => null,
                         'custom_time' => '',
@@ -1731,6 +1729,7 @@
                         'dispense_pm' => false,
                         'dispense_rest' => false,
                         'dispense_before_bed' => false,
+                        'dispense_prn' => false,
                         'dispense_custom_time' => false,
                         'meal_condition' => null,
                         'custom_time' => '',
@@ -1757,15 +1756,66 @@
                     <div>
                       <p class="font-semibold mb-2 text-base">Pet Information</p>
                       <div class="space-y-3 ms-2">
-                        <label class="label cursor-pointer justify-start gap-2">
-                          <input type="checkbox" class="checkbox checkbox-sm boarding-flea-tick-checkbox" name="pet_specific[{{ $petIdKey }}][flea_tick]" value="1" data-pet-id="{{ $pet->id }}" {{ $petFleaTickChecked ? 'checked' : '' }} />
-                          <span class="label-text">Flea/Tick</span>
-                        </label>
+                        <div>
+                          <p class="font-medium mb-2">Is your dog on flea/tick prevention?</p>
+                          <div class="flex items-center gap-4 flex-wrap">
+                            <label class="label cursor-pointer justify-start gap-2 p-0">
+                              <input
+                                type="radio"
+                                class="radio radio-sm boarding-flea-prevention-radio"
+                                name="pet_specific[{{ $petIdKey }}][flea_tick_prevention]"
+                                value="yes"
+                                data-pet-id="{{ $pet->id }}"
+                                {{ $petFleaTickPrevention === 'yes' ? 'checked' : '' }}
+                              />
+                              <span class="label-text">Yes</span>
+                            </label>
+                            <label class="label cursor-pointer justify-start gap-2 p-0">
+                              <input
+                                type="radio"
+                                class="radio radio-sm boarding-flea-prevention-radio"
+                                name="pet_specific[{{ $petIdKey }}][flea_tick_prevention]"
+                                value="no"
+                                data-pet-id="{{ $pet->id }}"
+                                {{ $petFleaTickPrevention === 'no' ? 'checked' : '' }}
+                              />
+                              <span class="label-text">No</span>
+                            </label>
+                          </div>
+                          <div
+                            class="mt-2 boarding-flea-prevention-type-wrapper"
+                            data-pet-id="{{ $pet->id }}"
+                            style="{{ $petFleaTickPrevention === 'yes' ? '' : 'display: none;' }}"
+                          >
+                            <label class="label p-0 mb-1">
+                              <span class="label-text">Prevention Type</span>
+                            </label>
+                            <select
+                              class="select select-bordered w-full select-sm boarding-flea-prevention-type"
+                              name="pet_specific[{{ $petIdKey }}][flea_tick_prevention_type]"
+                              data-pet-id="{{ $pet->id }}"
+                            >
+                              <option value="">Select prevention type</option>
+                              <option value="Bravecto" {{ $petFleaTickPreventionType === 'Bravecto' ? 'selected' : '' }}>Bravecto</option>
+                              <option value="Heartgard" {{ $petFleaTickPreventionType === 'Heartgard' ? 'selected' : '' }}>Heartgard</option>
+                              <option value="NexGard" {{ $petFleaTickPreventionType === 'NexGard' ? 'selected' : '' }}>NexGard</option>
+                              <option value="Simparica" {{ $petFleaTickPreventionType === 'Simparica' ? 'selected' : '' }}>Simparica</option>
+                              <option value="Other" {{ $petFleaTickPreventionType === 'Other' ? 'selected' : '' }}>Other</option>
+                            </select>
+                          </div>
+                        </div>
                         <div>
                           <p class="font-medium mb-2">Items:</p>
                           <div class="mt-2">
                             <textarea class="textarea textarea-bordered w-full boarding-other-items-description" rows="2" data-pet-id="{{ $pet->id }}"
                               placeholder="Please describe items brought for boarding (e.g., Leash, Collar, toys, bedding, etc)">{{ $petOtherItemsDescription }}</textarea>
+                          </div>
+                        </div>
+                        <div>
+                          <p class="font-medium mb-2">Care notes:</p>
+                          <div class="mt-2">
+                            <textarea class="textarea textarea-bordered w-full boarding-care-notes" rows="2" data-pet-id="{{ $pet->id }}"
+                              placeholder="Add care notes for {{ $pet->name }}...">{{ $petCareNotes }}</textarea>
                           </div>
                         </div>
                       </div>
@@ -1901,6 +1951,7 @@
                                 $rowDispensePm = !empty($medicationRow['dispense_pm']) && ($medicationRow['dispense_pm'] === true || $medicationRow['dispense_pm'] === 'true');
                                 $rowDispenseRest = !empty($medicationRow['dispense_rest']) && ($medicationRow['dispense_rest'] === true || $medicationRow['dispense_rest'] === 'true');
                                 $rowDispenseBeforeBed = !empty($medicationRow['dispense_before_bed']) && ($medicationRow['dispense_before_bed'] === true || $medicationRow['dispense_before_bed'] === 'true');
+                                $rowDispensePrn = !empty($medicationRow['dispense_prn']) && ($medicationRow['dispense_prn'] === true || $medicationRow['dispense_prn'] === 'true');
                                 $rowDispenseCustomTime = !empty($medicationRow['dispense_custom_time']) && ($medicationRow['dispense_custom_time'] === true || $medicationRow['dispense_custom_time'] === 'true');
                                 if (($medicationRow['condition'] ?? '') === 'custom_time') {
                                   $rowDispenseCustomTime = true;
@@ -1943,6 +1994,10 @@
                                     <label class="flex items-center gap-2">
                                       <input type="checkbox" class="checkbox checkbox-xs boarding-med-dispense-before-bed" {{ $rowDispenseBeforeBed ? 'checked' : '' }} />
                                       <span class="text-sm">Before Bed</span>
+                                    </label>
+                                    <label class="flex items-center gap-2">
+                                      <input type="checkbox" class="checkbox checkbox-xs boarding-med-dispense-prn" {{ $rowDispensePrn ? 'checked' : '' }} />
+                                      <span class="text-sm">PRN</span>
                                     </label>
                                     <label class="flex items-center gap-2">
                                       <input type="checkbox" class="checkbox checkbox-xs boarding-med-dispense-custom-time" {{ $rowDispenseCustomTime ? 'checked' : '' }} />
@@ -2048,16 +2103,10 @@
                         <label class="input w-full focus:outline-0 input-sm">
                         @php
                             $checkinStateTaxRate = isBoardingService($appointment->service) ? (float) config('billing.state_tax_rate', 7) : 0;
-                            $checkinBoardingPricing = isBoardingService($appointment->service) ? getBoardingPricingBreakdown($appointment) : null;
-                            
-                            if ($checkinBoardingPricing) {
-                              $checkinNetPrice = floatval($checkinBoardingPricing['total']);
-                            } else {
-                              $estimatedPriceValue = (float) ($dbEstimatedPrice ?? 0) > 0
-                                ? (float) $dbEstimatedPrice
-                                : (float) ($appointment->estimated_price ?? 0);
-                              $checkinNetPrice = $estimatedPriceValue;
-                            }
+                            $estimatedPriceValue = (float) ($dbEstimatedPrice ?? 0) > 0
+                              ? (float) $dbEstimatedPrice
+                              : (float) ($appointment->estimated_price ?? 0);
+                            $checkinNetPrice = $estimatedPriceValue;
                             
                             $estimatedPriceDisplayValue = $checkinNetPrice > 0
                               ? ($checkinNetPrice * (1 + ($checkinStateTaxRate / 100)))
@@ -2205,16 +2254,10 @@
                   <label class="input w-full focus:outline-0 input-sm">
                     @php
                       $checkinStateTaxRate = isBoardingService($appointment->service) ? (float) config('billing.state_tax_rate', 7) : 0;
-                      $checkinBoardingPricing = isBoardingService($appointment->service) ? getBoardingPricingBreakdown($appointment) : null;
-                      
-                      if ($checkinBoardingPricing) {
-                        $checkinNetPrice = floatval($checkinBoardingPricing['total']);
-                      } else {
-                        $estimatedPriceValue = (float) ($dbEstimatedPrice ?? 0) > 0
-                          ? (float) $dbEstimatedPrice
-                          : (float) ($appointment->estimated_price ?? 0);
-                        $checkinNetPrice = $estimatedPriceValue;
-                      }
+                      $estimatedPriceValue = (float) ($dbEstimatedPrice ?? 0) > 0
+                        ? (float) $dbEstimatedPrice
+                        : (float) ($appointment->estimated_price ?? 0);
+                      $checkinNetPrice = $estimatedPriceValue;
                       
                       $estimatedPriceDisplayValue = $checkinNetPrice > 0
                         ? ($checkinNetPrice * (1 + ($checkinStateTaxRate / 100)))
@@ -2785,6 +2828,17 @@
                           </div>
                           @endif
 
+                          @if(!empty($petSummary['prn_meds']))
+                          <div>
+                            <p class="font-medium text-sm">PRN Medications</p>
+                            <ul class="list-disc ms-4 text-sm text-base-content/80 space-y-1">
+                              @foreach($petSummary['prn_meds'] as $item)
+                                <li>{{ $item }}</li>
+                              @endforeach
+                            </ul>
+                          </div>
+                          @endif
+
                           @if(!empty($petSummary['incidents']))
                           <div>
                             <p class="font-medium text-sm">Incidents</p>
@@ -3250,7 +3304,7 @@
 
     // Auto-save boarding check-in data
     @if (isBoardingService($appointment->service))
-    $('#boarding_pickup_datetime, #boarding_trip_location, #boarding_trip_phone, #boarding_alternate_contact_name, #boarding_alternate_contact_phone, #boarding_trip_notes, #boarding_vet_name, #boarding_vet_phone, input[name="boarding_vet_notification"], #boarding_health_status, #boarding_medical_issues, #boarding_flea_tick_treatment, #boarding_pet_notes, #boarding_has_leash, #boarding_has_collar, #boarding_has_other_items, .boarding-other-items-description, input[name="boarding_location_type"], #boarding_location_details').on('change input', function() {
+    $('#boarding_pickup_datetime, #boarding_trip_location, #boarding_trip_phone, #boarding_alternate_contact_name, #boarding_alternate_contact_phone, #boarding_trip_notes, #boarding_vet_name, #boarding_vet_phone, input[name="boarding_vet_notification"], #boarding_health_status, #boarding_medical_issues, #boarding_flea_tick_treatment, #boarding_pet_notes, #boarding_has_leash, #boarding_has_collar, #boarding_has_other_items, .boarding-other-items-description, .boarding-care-notes, input[name="boarding_location_type"], #boarding_location_details').on('change input', function() {
       saveBoardingCheckinData();
     });
 
@@ -3380,6 +3434,7 @@
         $row.find('.boarding-med-dispense-pm').prop('checked', false);
         $row.find('.boarding-med-dispense-rest').prop('checked', false);
         $row.find('.boarding-med-dispense-before-bed').prop('checked', false);
+        $row.find('.boarding-med-dispense-prn').prop('checked', false);
         $row.find('.boarding-med-dispense-custom-time').prop('checked', false);
         $row.find('.boarding-med-custom-time').val('');
         toggleBoardingMedicationCustomTime($row);
@@ -4252,7 +4307,9 @@
 
       petSpecific[petId] = {
         other_items_description: ($section.find('.boarding-other-items-description').val() || '').trim() || null,
-        flea_tick: $section.find('.boarding-flea-tick-checkbox').is(':checked'),
+        care_notes: ($section.find('.boarding-care-notes').val() || '').trim() || null,
+        flea_tick_prevention: (($section.find('.boarding-flea-prevention-radio:checked').val() || '').trim() || null),
+        flea_tick_prevention_type: (($section.find('.boarding-flea-prevention-type').val() || '').trim() || null),
         dry_food_list: dryFoodList,
         wet_food_list: wetFoodList,
         meds_list: medicationsList,
@@ -4275,7 +4332,8 @@
           amount: firstMedication.amount || null,
           dispense_am: medicationsList.some(item => item.dispense_am === true),
           dispense_pm: medicationsList.some(item => item.dispense_pm === true || item.dispense_before_bed === true),
-          dispense_rest: medicationsList.some(item => item.dispense_rest === true || item.dispense_before_bed === true)
+          dispense_rest: medicationsList.some(item => item.dispense_rest === true || item.dispense_before_bed === true),
+          dispense_prn: medicationsList.some(item => item.dispense_prn === true)
         }
       };
 
@@ -4287,6 +4345,7 @@
     const petSpecificKeys = Object.keys(petSpecific);
     const primaryPetData = petSpecificKeys.length > 0 ? petSpecific[petSpecificKeys[0]] : {
       other_items_description: null,
+      care_notes: null,
       dry_food_list: [],
       wet_food_list: [],
       meds_list: [],
@@ -4301,6 +4360,7 @@
     const hasAm = medicationsList.some(item => item.dispense_am === true);
     const hasPm = medicationsList.some(item => item.dispense_pm === true || item.dispense_before_bed === true);
     const hasRest = medicationsList.some(item => item.dispense_rest === true || item.dispense_before_bed === true);
+    const hasPrn = medicationsList.some(item => item.dispense_prn === true);
     const hasDryAm = dryFoodList.some(item => item.dispense_am === true);
     const hasDryPm = dryFoodList.some(item => item.dispense_pm === true);
     const hasDryLunch = dryFoodList.some(item => item.dispense_lunch === true);
@@ -4316,7 +4376,8 @@
       amount: firstMedication.amount || null,
       dispense_am: hasAm,
       dispense_pm: hasPm,
-      dispense_rest: hasRest
+      dispense_rest: hasRest,
+      dispense_prn: hasPrn
     };
 
     const ownerName = ($('#boarding_owner_full_name').val() || '').trim();
@@ -4340,7 +4401,7 @@
       health_status: $('#boarding_health_status').val() || null,
       medical_issues: $('#boarding_medical_issues').val() || null,
       flea_tick_treatment: $('#boarding_flea_tick_treatment').val() || null,
-      pet_notes: $('#boarding_pet_notes').val() || null,
+      pet_notes: primaryPetData.care_notes || ($('#boarding_pet_notes').val() || null),
       has_leash: $('#boarding_has_leash').is(':checked'),
       has_collar: $('#boarding_has_collar').is(':checked'),
       has_other_items: $('#boarding_has_other_items').is(':checked'),
@@ -4371,6 +4432,7 @@
             if (item.dispense_pm) dispenseLabels.push('PM');
             if (item.dispense_rest) dispenseLabels.push('Rest');
             if (item.dispense_before_bed) dispenseLabels.push('Before Bed');
+            if (item.dispense_prn) dispenseLabels.push('PRN');
             if (item.dispense_custom_time && item.custom_time) dispenseLabels.push(`Custom Time (${item.custom_time})`);
             const mealConditionLabel = getMedicationConditionLabel(item.meal_condition);
             const details = [
@@ -4424,68 +4486,29 @@
     return value === true || value === 'true' || value === 1 || value === '1';
   }
 
-  const boardingEstimatedPriceInput = document.getElementById('estimated_price');
-  const boardingTaxRate = boardingEstimatedPriceInput ? parseFloat(boardingEstimatedPriceInput.dataset.boardingTaxRate || '0') : 0;
-  const boardingDiscountAmount = boardingEstimatedPriceInput ? parseFloat(boardingEstimatedPriceInput.dataset.boardingDiscountAmount || '0') : 0;
-  const boardingFleaTickUnitAmount = 50;
-  const boardingInitialFleaTickCount = document.querySelectorAll('.boarding-flea-tick-checkbox:checked').length;
-  const boardingBaseGrossBeforeFlea = (() => {
-    if (!boardingEstimatedPriceInput) {
-      return 0;
+  function updateBoardingFleaPreventionTypeVisibility(petId, value) {
+    const wrapper = document.querySelector('.boarding-flea-prevention-type-wrapper[data-pet-id="' + petId + '"]');
+    const select = wrapper ? wrapper.querySelector('.boarding-flea-prevention-type') : null;
+    if (!wrapper || !select) {
+      return;
     }
 
-    const currentPrice = parseFloat(boardingEstimatedPriceInput.value);
-    if (Number.isNaN(currentPrice)) {
-      return 0;
-    }
-
-    const taxFactor = 1 + (boardingTaxRate / 100);
-    return taxFactor > 0
-      ? ((currentPrice / taxFactor) + boardingDiscountAmount - (boardingInitialFleaTickCount * boardingFleaTickUnitAmount))
-      : (currentPrice + boardingDiscountAmount - (boardingInitialFleaTickCount * boardingFleaTickUnitAmount));
-  })();
-
-  function updateBoardingFleaTickPricing() {
-    const fleaCheckboxes = document.querySelectorAll('.boarding-flea-tick-checkbox');
-    const checkedCount = document.querySelectorAll('.boarding-flea-tick-checkbox:checked').length;
-    const hasFleaCheckboxes = fleaCheckboxes.length > 0;
-    const feeRow = document.getElementById('flea_tick_fee_row');
-
-    let feeTotal = checkedCount * boardingFleaTickUnitAmount;
-    if (!hasFleaCheckboxes && feeRow) {
-      const initialFee = parseFloat(feeRow.dataset.initialFee || '0');
-      feeTotal = Number.isNaN(initialFee) ? 0 : initialFee;
-    }
-
-    const taxFactor = 1 + (boardingTaxRate / 100);
-
-    if (boardingEstimatedPriceInput && hasFleaCheckboxes) {
-      const updatedPrice = Math.max(0, (boardingBaseGrossBeforeFlea + feeTotal - boardingDiscountAmount) * taxFactor);
-      boardingEstimatedPriceInput.value = updatedPrice.toFixed(2);
-    }
-
-    if (feeRow) {
-      const feeCell = feeRow.querySelector('td:nth-child(3)');
-      if (feeCell) {
-        feeCell.textContent = '$' + feeTotal.toFixed(2);
-      }
-      feeRow.style.display = feeTotal > 0 ? '' : 'none';
-    }
-
-    if (window.__invoiceTotalsReady === true && typeof updateTotals === 'function') {
-      updateTotals();
+    const showType = value === 'yes';
+    wrapper.style.display = showType ? '' : 'none';
+    if (!showType) {
+      select.value = '';
     }
   }
 
-  document.addEventListener('change', function(event) {
-    if (event.target && event.target.classList && event.target.classList.contains('boarding-flea-tick-checkbox')) {
-      updateBoardingFleaTickPricing();
-    }
+  document.querySelectorAll('.boarding-flea-prevention-radio:checked').forEach(function(radio) {
+    updateBoardingFleaPreventionTypeVisibility(radio.dataset.petId, radio.value);
   });
 
-  if (document.querySelector('.boarding-flea-tick-checkbox') || document.getElementById('flea_tick_fee_row')) {
-    updateBoardingFleaTickPricing();
-  }
+  document.addEventListener('change', function(event) {
+    if (event.target && event.target.classList && event.target.classList.contains('boarding-flea-prevention-radio')) {
+      updateBoardingFleaPreventionTypeVisibility(event.target.dataset.petId, event.target.value);
+    }
+  });
 
   function validateBoardingAgreementSignature(showErrors = false) {
     const isBoarding = {{ isBoardingService($appointment->service) ? 'true' : 'false' }};
@@ -4827,10 +4850,11 @@
       const dispensePm = $(this).find('.boarding-med-dispense-pm').is(':checked');
       const dispenseRest = $(this).find('.boarding-med-dispense-rest').is(':checked');
       const dispenseBeforeBed = $(this).find('.boarding-med-dispense-before-bed').is(':checked');
+      const dispensePrn = $(this).find('.boarding-med-dispense-prn').is(':checked');
       const dispenseCustomTime = $(this).find('.boarding-med-dispense-custom-time').is(':checked');
       const customTime = ($(this).find('.boarding-med-custom-time').val() || '').trim();
 
-      if (!name && !amount && !mealCondition && !dispenseAm && !dispensePm && !dispenseRest && !dispenseBeforeBed && !dispenseCustomTime && !customTime) {
+      if (!name && !amount && !mealCondition && !dispenseAm && !dispensePm && !dispenseRest && !dispenseBeforeBed && !dispensePrn && !dispenseCustomTime && !customTime) {
         return;
       }
 
@@ -4841,6 +4865,7 @@
         dispense_pm: dispensePm,
         dispense_rest: dispenseRest,
         dispense_before_bed: dispenseBeforeBed,
+        dispense_prn: dispensePrn,
         dispense_custom_time: dispenseCustomTime,
         meal_condition: mealCondition || null,
         custom_time: dispenseCustomTime ? (customTime || null) : null,
@@ -4918,6 +4943,10 @@
             <label class="flex items-center gap-2">
               <input type="checkbox" class="checkbox checkbox-xs boarding-med-dispense-before-bed" />
               <span class="text-sm">Before Bed</span>
+            </label>
+            <label class="flex items-center gap-2">
+              <input type="checkbox" class="checkbox checkbox-xs boarding-med-dispense-prn" />
+              <span class="text-sm">PRN</span>
             </label>
             <label class="flex items-center gap-2">
               <input type="checkbox" class="checkbox checkbox-xs boarding-med-dispense-custom-time" />
@@ -6213,7 +6242,28 @@
     const hasMedication = medsList.length > 0 ? '1' : '0';
     const medsAm = hasMedication;
     const medsPm = hasMedication;
-    const exportUrl = '{{ route("export-boarding-detail-report-pdf", $appointment->id) }}' + '?meds_am=' + medsAm + '&meds_pm=' + medsPm;
+    const careNotesByPet = {};
+    $('.boarding-pet-section').each(function() {
+      const $section = $(this);
+      const petId = String($section.data('pet-id') || '').trim();
+      if (!petId) {
+        return;
+      }
+
+      const note = ($section.find('.boarding-care-notes').val() || '').trim();
+      if (note !== '') {
+        careNotesByPet[petId] = note;
+      }
+    });
+
+    const careNotes = ($('#notes').val() || '').trim();
+    let exportUrl = '{{ route("export-boarding-detail-report-pdf", $appointment->id) }}' + '?meds_am=' + medsAm + '&meds_pm=' + medsPm;
+    if (Object.keys(careNotesByPet).length > 0) {
+      exportUrl += '&care_notes_by_pet=' + encodeURIComponent(JSON.stringify(careNotesByPet));
+    }
+    if (careNotes !== '') {
+      exportUrl += '&care_notes=' + encodeURIComponent(careNotes);
+    }
     window.open(exportUrl, '_blank');
   }
 
