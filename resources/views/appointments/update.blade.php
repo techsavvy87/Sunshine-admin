@@ -1609,29 +1609,44 @@
       });
     }
 
-    function isWithinBusinessHours(dateTimeValue) {
+    @php
+      $canCreateEarlyBoardingDropoff = auth()->check()
+        && auth()->user()->roles()->whereRaw('LOWER(title) = ?', ['owner'])->exists();
+    @endphp
+
+    const canCreateEarlyBoardingDropoff = @json($canCreateEarlyBoardingDropoff);
+
+    function getTotalMinutesFromDateTimeValue(dateTimeValue) {
       if (!dateTimeValue) {
-        return false;
+        return null;
       }
 
       const parts = dateTimeValue.split('T');
       if (parts.length !== 2) {
-        return false;
+        return null;
       }
 
       const timeParts = parts[1].split(':');
       if (timeParts.length < 2) {
-        return false;
+        return null;
       }
 
       const hours = parseInt(timeParts[0], 10);
       const minutes = parseInt(timeParts[1], 10);
 
       if (Number.isNaN(hours) || Number.isNaN(minutes)) {
+        return null;
+      }
+
+      return (hours * 60) + minutes;
+    }
+
+    function isWithinBusinessHours(dateTimeValue) {
+      const totalMinutes = getTotalMinutesFromDateTimeValue(dateTimeValue);
+      if (totalMinutes === null) {
         return false;
       }
 
-      const totalMinutes = (hours * 60) + minutes;
       const businessStart = 9 * 60;
       const businessEnd = 16 * 60;
 
@@ -1782,7 +1797,14 @@
           return;
         }
 
-        if (!isWithinBusinessHours(boardingStart)) {
+        const boardingStartMinutes = getTotalMinutesFromDateTimeValue(boardingStart);
+        const isEarlyDropOff = boardingStartMinutes !== null && boardingStartMinutes < (9 * 60);
+        const isLateDropOff = boardingStartMinutes !== null && boardingStartMinutes > (16 * 60);
+        if (
+          boardingStartMinutes === null
+          || (isEarlyDropOff && !canCreateEarlyBoardingDropoff)
+          || isLateDropOff
+        ) {
           $('#alert_message').text('Drop-off time must be between 9:00 AM and 4:00 PM.');
           alert_modal.showModal();
           return;

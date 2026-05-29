@@ -125,15 +125,9 @@
               </div>
               <div id="price_daycare_group" class="xl:col-span-2 hidden space-y-2">
                 <label class="fieldset-label" for="duration">Daycare Price*</label>
-                <div class="grid grid-cols-1 gap-2 xl:grid-cols-2">
+                <div class="grid grid-cols-1 gap-2 xl:grid-cols-1">
                   <label class="input w-full focus:outline-0">
-                    <span class="badge badge-ghost badge-sm mr-2">Half Day</span>
-                    <input data-daycare-price class="grow focus:outline-0" placeholder="e.g. 4.0" id="price_half_daycare" name="price_half_daycare" type="text" oninput="this.value = this.value.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1')" />
-                    <span class="badge badge-ghost badge-sm">USD</span>
-                  </label>
-                  <label class="input w-full focus:outline-0">
-                    <span class="badge badge-ghost badge-sm mr-2">Full Day</span>
-                    <input data-daycare-price class="grow focus:outline-0" placeholder="e.g. 8.0" id="price_full_daycare" name="price_full_daycare" type="text" oninput="this.value = this.value.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1')" />
+                    <input data-daycare-price class="grow focus:outline-0" placeholder="e.g. 40" id="price_daycare" name="price_daycare" type="text" oninput="this.value = this.value.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1')" />
                     <span class="badge badge-ghost badge-sm">USD</span>
                   </label>
                 </div>
@@ -192,15 +186,9 @@
               </div>
               <div id="duration_daycare_group" class="xl:col-span-2 hidden space-y-2">
                 <label class="fieldset-label" for="duration">Daycare Duration*</label>
-                <div class="grid grid-cols-1 gap-2 xl:grid-cols-2">
+                <div class="grid grid-cols-1 gap-2 xl:grid-cols-1">
                   <label class="input w-full focus:outline-0">
-                    <span class="badge badge-ghost badge-sm mr-2">Half Day</span>
-                    <input data-daycare-duration class="grow focus:outline-0" placeholder="e.g. 4.0" id="duration_half_daycare" name="duration_half_daycare" type="text" oninput="this.value = this.value.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1')" />
-                    <span class="badge badge-ghost badge-sm">hrs</span>
-                  </label>
-                  <label class="input w-full focus:outline-0">
-                    <span class="badge badge-ghost badge-sm mr-2">Full Day</span>
-                    <input data-daycare-duration class="grow focus:outline-0" placeholder="e.g. 8.0" id="duration_full_daycare" name="duration_full_daycare" type="text" oninput="this.value = this.value.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1')" />
+                    <input data-daycare-duration class="grow focus:outline-0" placeholder="e.g. 8" id="duration_daycare" name="duration_daycare" type="text" oninput="this.value = this.value.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1')" />
                     <span class="badge badge-ghost badge-sm">hrs</span>
                   </label>
                 </div>
@@ -524,13 +512,11 @@
           }
         }
       } else if (categoryName.includes('daycare')) {
-        const priceHalfDay = $('#price_half_daycare').val();
-        const priceFullDay = $('#price_full_daycare').val();
-        const durationHalfDay = $('#duration_half_daycare').val();
-        const durationFullDay = $('#duration_full_daycare').val();
+        const priceDaycare = $('#price_daycare').val();
+        const durationDaycare = $('#duration_daycare').val();
 
-        if (!priceHalfDay || !priceFullDay || !durationHalfDay || !durationFullDay) {
-          $('#alert_message').text('Please fill in all daycare price and duration fields.');
+        if (!priceDaycare || !durationDaycare) {
+          $('#alert_message').text('Please fill in daycare price and duration fields.');
           alert_modal.showModal();
           return;
         }

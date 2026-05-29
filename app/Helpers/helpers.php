@@ -348,6 +348,120 @@ if (!function_exists('getBoardingFleaTickBreakdown')) {
     }
 }
 
+if (!function_exists('getBoardingLateCheckoutDaycareBreakdown')) {
+    function getBoardingLateCheckoutDaycareBreakdown($appointment, $checkout = null, int $thresholdHours = 1): array
+    {
+        $result = [
+            'scheduled_pickup_at' => null,
+            'actual_checkout_at' => null,
+            'late_seconds' => 0,
+            'late_hours' => 0,
+            'threshold_hours' => $thresholdHours,
+            'daycare_price' => 0,
+            'daycare_duration' => 0,
+            'hourly_rate' => 0,
+            'billable_hours' => 0,
+            'fee' => 0,
+            'should_apply_fee' => false,
+        ];
+
+        if (!$appointment || !isBoardingService($appointment->service ?? null) || ($appointment->status ?? null) !== 'completed' || empty($appointment->end_date) || empty($appointment->end_time)) {
+            return $result;
+        }
+
+        $scheduledPickupAt = \Carbon\Carbon::parse($appointment->end_date . ' ' . $appointment->end_time);
+        $result['scheduled_pickup_at'] = $scheduledPickupAt;
+
+        if (!$checkout) {
+            $checkout = \App\Models\Checkout::where('appointment_id', $appointment->id)->first();
+        }
+
+        $checkoutFlows = [];
+        if ($checkout && !empty($checkout->flows)) {
+            if (is_array($checkout->flows)) {
+                $checkoutFlows = $checkout->flows;
+            } else {
+                $decoded = json_decode($checkout->flows, true);
+                $checkoutFlows = is_array($decoded) ? $decoded : [];
+            }
+        }
+
+        $actualCheckoutAt = null;
+        $flowActualCheckoutAt = trim((string) ($checkoutFlows['actual_checkout_at'] ?? ''));
+        $flowActualCheckoutTime = trim((string) ($checkoutFlows['actual_checkout_time'] ?? ''));
+
+        if ($flowActualCheckoutAt !== '') {
+            try {
+                $actualCheckoutAt = \Carbon\Carbon::parse($flowActualCheckoutAt);
+            } catch (\Throwable $e) {
+                $actualCheckoutAt = null;
+            }
+        }
+
+        if (!$actualCheckoutAt && !empty($checkout?->date) && $flowActualCheckoutTime !== '') {
+            try {
+                $actualCheckoutAt = \Carbon\Carbon::parse($checkout->date . ' ' . $flowActualCheckoutTime);
+            } catch (\Throwable $e) {
+                $actualCheckoutAt = null;
+            }
+        }
+
+        if (!$actualCheckoutAt) {
+            $actualCheckoutAt = \Carbon\Carbon::now();
+        }
+
+        $result['actual_checkout_at'] = $actualCheckoutAt;
+
+        $lateSeconds = $scheduledPickupAt->diffInSeconds($actualCheckoutAt, false);
+        if ($lateSeconds <= 0) {
+            return $result;
+        }
+
+        $result['late_seconds'] = $lateSeconds;
+        $lateHours = $lateSeconds / 3600;
+        $result['late_hours'] = round($lateHours, 2);
+
+        if ($lateHours < $thresholdHours) {
+            return $result;
+        }
+
+        $daycareService = \App\Models\Service::query()
+            ->whereRelation('category', 'name', 'like', '%daycare%')
+            ->where('status', 'active')
+            ->orderBy('id')
+            ->first();
+
+        if (!$daycareService) {
+            return $result;
+        }
+
+        $daycarePrice = floatval($daycareService->price ?? $daycareService->price_medium ?? $daycareService->price_small ?? 0);
+        $daycareDuration = floatval($daycareService->duration ?? $daycareService->duration_medium ?? $daycareService->duration_small ?? 0);
+        $result['daycare_price'] = $daycarePrice;
+        $result['daycare_duration'] = $daycareDuration;
+
+        if ($daycarePrice <= 0 || $daycareDuration <= 0) {
+            return $result;
+        }
+
+        $hourlyRate = round($daycarePrice / $daycareDuration, 2);
+        $result['hourly_rate'] = $hourlyRate;
+
+        $billableHours = (int) floor($lateHours);
+        $result['billable_hours'] = $billableHours;
+
+        if ($billableHours <= 0) {
+            return $result;
+        }
+
+        $fee = round($billableHours * $hourlyRate, 2);
+        $result['fee'] = $fee;
+        $result['should_apply_fee'] = $fee > 0;
+
+        return $result;
+    }
+}
+
 if (!function_exists('getBoardingServicePrice')) {
     function getBoardingServicePrice($service, $appointment, $serviceOverride = null)
     {

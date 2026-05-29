@@ -29,6 +29,7 @@ use App\Models\Room;
 use App\Services\AppointmentBookingNotifier;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Log;
 use App\Mail\Invoice as InvoiceMail;
 use App\Mail\AdminCustomerMessage;
 
@@ -2377,6 +2378,23 @@ class AppointmentController extends Controller
             $startDateTime = Carbon::parse($request->boarding_start_datetime);
             $endDateTime = Carbon::parse($request->boarding_end_datetime);
 
+            if (isBoardingService($service)) {
+                $dropOffMinutes = ((int) $startDateTime->format('H') * 60) + (int) $startDateTime->format('i');
+                $businessStartMinutes = 9 * 60;
+                $businessEndMinutes = 16 * 60;
+                $isEarlyDropOff = $dropOffMinutes < $businessStartMinutes;
+                $isLateDropOff = $dropOffMinutes > $businessEndMinutes;
+                $canCreateEarlyDropOff = Auth::user()
+                    ? Auth::user()->roles()->whereRaw('LOWER(title) = ?', ['owner'])->exists()
+                    : false;
+
+                if (($isEarlyDropOff && !$canCreateEarlyDropOff) || $isLateDropOff) {
+                    return back()->withErrors([
+                        'boarding_start_datetime' => 'Drop-off time must be between 9:00 AM and 4:00 PM.'
+                    ])->withInput();
+                }
+            }
+
             if ($requiresAdditionalServiceTimeSlot) {
                 foreach ($additionalServiceTimeSlotAssignments as $assignment) {
                     $slotDetails = $additionalServiceTimeSlotDetailsByPet[(int) ($assignment['pet_id'] ?? 0)][(int) ($assignment['service_id'] ?? 0)] ?? null;
@@ -3032,6 +3050,21 @@ class AppointmentController extends Controller
         if (isBoardingService($service) && $request->filled('boarding_start_datetime') && $request->filled('boarding_end_datetime')) {
             $startDateTime = Carbon::parse($request->boarding_start_datetime);
             $endDateTime = Carbon::parse($request->boarding_end_datetime);
+
+            $dropOffMinutes = ((int) $startDateTime->format('H') * 60) + (int) $startDateTime->format('i');
+            $businessStartMinutes = 9 * 60;
+            $businessEndMinutes = 16 * 60;
+            $isEarlyDropOff = $dropOffMinutes < $businessStartMinutes;
+            $isLateDropOff = $dropOffMinutes > $businessEndMinutes;
+            $canCreateEarlyDropOff = Auth::user()
+                ? Auth::user()->roles()->whereRaw('LOWER(title) = ?', ['owner'])->exists()
+                : false;
+
+            if (($isEarlyDropOff && !$canCreateEarlyDropOff) || $isLateDropOff) {
+                return back()->withErrors([
+                    'boarding_start_datetime' => 'Drop-off time must be between 9:00 AM and 4:00 PM.'
+                ])->withInput();
+            }
 
             if ($requiresAdditionalServiceTimeSlot) {
                 foreach ($additionalServiceTimeSlotAssignments as $assignment) {
@@ -3955,7 +3988,7 @@ class AppointmentController extends Controller
             'issued_at' => 'nullable|date',
             'due_date' => 'nullable|date',
             'paid_at' => 'nullable|date',
-            'status' => 'required|in:draft,sent,paid,void',
+            'status' => 'required|in:draft,sent,paid,void,finalized',
             'notes' => 'nullable|string|max:1000',
             'items' => 'nullable|array',
             'discount_title' => 'nullable|string|max:255',
@@ -3974,7 +4007,19 @@ class AppointmentController extends Controller
 
         // Check if invoice already exists for this appointment
         $invoice = Invoice::where('appointment_id', $appointment->id)->first();
-         if (!$invoice) {
+        $isExistingInvoice = (bool) $invoice;
+        if ($isExistingInvoice) {
+            $currentInvoiceStatus = strtolower((string) ($invoice->status ?? ''));
+            $isInvoiceLocked = in_array($currentInvoiceStatus, ['paid', 'finalized'], true);
+            if ($isInvoiceLocked && !$this->canEditLockedInvoice(Auth::user())) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Invoice is finalized/paid and cannot be edited.'
+                ], 403);
+            }
+        }
+
+        if (!$invoice) {
             $invoice = new Invoice;
             $invoice->appointment_id = $appointment->id;
         }
@@ -4033,48 +4078,8 @@ class AppointmentController extends Controller
                 $decodedCheckinFlows = json_decode($checkin->flows, true);
                 $checkinFlows = is_array($decodedCheckinFlows) ? $decodedCheckinFlows : [];
             }
-
-            $fleaTickFee = floatval(getBoardingFleaTickBreakdown($appointment, $checkinFlows)['amount'] ?? 0);
-            $isFleaTickFeeDescription = static function ($description): bool {
-                $normalized = strtolower(trim((string) $description));
-                return in_array($normalized, ['flea/tick fee', 'flea/tick detection fee'], true);
-            };
-
-            $normalizedItems = [];
-            $hasFleaTickItem = false;
-
-            foreach ($items as $itemData) {
-                $description = trim((string) ($itemData['description'] ?? ''));
-                $isFleaTickItem = $isFleaTickFeeDescription($description);
-
-                if ($isFleaTickItem) {
-                    if ($fleaTickFee <= 0) {
-                        continue;
-                    }
-
-                    if ($hasFleaTickItem) {
-                        continue;
-                    }
-
-                    $hasFleaTickItem = true;
-
-                    $itemData['description'] = 'Flea/Tick Detection Fee';
-                    $itemData['price'] = $fleaTickFee;
-                    $itemData['type'] = 'service';
-                }
-
-                $normalizedItems[] = $itemData;
-            }
-
-            if ($fleaTickFee > 0 && !$hasFleaTickItem) {
-                $normalizedItems[] = [
-                    'description' => 'Flea/Tick Detection Fee',
-                    'price' => $fleaTickFee,
-                    'type' => 'service',
-                ];
-            }
-
-            $items = $normalizedItems;
+            $lateCheckoutData = $this->resolveBoardingLateCheckoutDaycareFee($appointment);
+            $items = $this->normalizeBoardingSpecialFeeItems($appointment, $items, $checkinFlows, $lateCheckoutData);
         }
 
         $itemsForEmail = [];
@@ -4111,18 +4116,48 @@ class AppointmentController extends Controller
             $transaction->payment_method = $request->payment_method;
             $transaction->notes = $request->payment_notes;
             $transaction->save();
-            $this->sendInvoiceEmail($invoice, $appointment, $items, $discountInfo);
         }
 
+        $emailFailed = false;
         if ($request->status === 'sent' || ($request->status === 'paid' && $request->payment_amount)) {
-            $this->sendInvoiceEmail($invoice, $appointment, $items, $discountInfo);
+            try {
+                $this->sendInvoiceEmail($invoice, $appointment, $items, $discountInfo);
+            } catch (\Throwable $e) {
+                $emailFailed = true;
+                Log::error('Failed to send invoice email after saving invoice.', [
+                    'appointment_id' => $appointment->id,
+                    'invoice_id' => $invoice->id,
+                    'invoice_status' => $request->status,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        $responseMessage = $request->status === 'sent'
+            ? 'Invoice saved and sent successfully.'
+            : ($request->status === 'paid' && $request->payment_amount
+                ? 'Invoice saved and payment recorded successfully.'
+                : 'Invoice saved successfully.');
+
+        if ($emailFailed) {
+            $responseMessage = 'Invoice saved successfully, but sending email failed.';
         }
 
         return response()->json([
             'status' => true,
-            'message' => $request->status === 'sent' ? 'Invoice saved and sent successfully.' : ($request->status === 'paid' && $request->payment_amount ? 'Invoice saved and payment recorded successfully.' : 'Invoice saved successfully.'),
+            'message' => $responseMessage,
+            'email_failed' => $emailFailed,
             'invoice_id' => $invoice->id
         ]);
+    }
+
+    private function canEditLockedInvoice(?User $user): bool
+    {
+        if (!$user) {
+            return false;
+        }
+
+        return $user->roles()->whereRaw('LOWER(title) in (?, ?)', ['owner', 'admin'])->exists();
     }
 
     private function sendInvoiceEmail($invoice, $appointment, $items, $discountInfo = [])
@@ -4191,39 +4226,12 @@ class AppointmentController extends Controller
             ? getBoardingFleaTickBreakdown($appointment, $checkinFlows)
             : ['checked_pet_count' => 0, 'amount' => 0];
         $fleaTickFee = floatval($fleaTickBreakdown['amount'] ?? 0);
-        $isFleaTickFeeDescription = static function ($description): bool {
-            $normalized = strtolower(trim((string) $description));
-            return in_array($normalized, ['flea/tick fee', 'flea/tick detection fee'], true);
-        };
+        $lateCheckoutData = $this->resolveBoardingLateCheckoutDaycareFee($appointment);
+        $lateCheckoutFee = floatval($lateCheckoutData['late_fee'] ?? 0);
+        $shouldApplyLateCheckoutFee = (bool) ($lateCheckoutData['should_apply_fee'] ?? false);
 
         if (isBoardingService($appointment->service)) {
-            $normalizedItemsForEmail = [];
-            $hasFleaTickItem = false;
-
-            foreach (($items ?? []) as $itemData) {
-                if ($isFleaTickFeeDescription($itemData['description'] ?? '')) {
-                    if ($fleaTickFee <= 0 || $hasFleaTickItem) {
-                        continue;
-                    }
-
-                    $hasFleaTickItem = true;
-                    $itemData['description'] = 'Flea/Tick Detection Fee';
-                    $itemData['price'] = $fleaTickFee;
-                    $itemData['type'] = 'service';
-                }
-
-                $normalizedItemsForEmail[] = $itemData;
-            }
-
-            if ($fleaTickFee > 0 && !$hasFleaTickItem) {
-                $normalizedItemsForEmail[] = [
-                    'description' => 'Flea/Tick Detection Fee',
-                    'price' => $fleaTickFee,
-                    'type' => 'service',
-                ];
-            }
-
-            $items = $normalizedItemsForEmail;
+            $items = $this->normalizeBoardingSpecialFeeItems($appointment, is_array($items) ? $items : [], $checkinFlows, $lateCheckoutData);
         }
 
         if ($items && is_array($items)) {
@@ -4298,11 +4306,108 @@ class AppointmentController extends Controller
             'state_tax_amount' => $stateTaxAmount,
             'flea_tick_fee' => $fleaTickFee,
             'flea_tick_checked_pet_count' => (int) ($fleaTickBreakdown['checked_pet_count'] ?? 0),
+            'late_checkout_hours' => floatval($lateCheckoutData['late_hours'] ?? 0),
+            'late_checkout_daycare_fee' => $shouldApplyLateCheckoutFee ? $lateCheckoutFee : 0,
             'total' => $totalAmount,
             'total_amount' => $totalAmount
         ];
 
         Mail::to($invoice->email)->send(new InvoiceMail($emailData));
+    }
+
+    private function resolveBoardingLateCheckoutDaycareFee(Appointment $appointment): array
+    {
+        $breakdown = getBoardingLateCheckoutDaycareBreakdown($appointment, null, 1);
+
+        return [
+            'scheduled_pickup_at' => $breakdown['scheduled_pickup_at'] ?? null,
+            'actual_checkout_at' => $breakdown['actual_checkout_at'] ?? null,
+            'is_late' => (($breakdown['late_seconds'] ?? 0) > 0),
+            'late_seconds' => intval($breakdown['late_seconds'] ?? 0),
+            'late_hours' => floatval($breakdown['late_hours'] ?? 0),
+            'threshold_hours' => intval($breakdown['threshold_hours'] ?? 1),
+            'daycare_price' => floatval($breakdown['daycare_price'] ?? 0),
+            'daycare_duration' => floatval($breakdown['daycare_duration'] ?? 0),
+            'hourly_rate' => floatval($breakdown['hourly_rate'] ?? 0),
+            'late_fee' => floatval($breakdown['fee'] ?? 0),
+            'should_apply_fee' => (bool) ($breakdown['should_apply_fee'] ?? false),
+        ];
+    }
+
+    private function isFleaTickFeeDescription($description): bool
+    {
+        $normalized = strtolower(trim((string) $description));
+        return in_array($normalized, ['flea/tick fee', 'flea/tick detection fee'], true);
+    }
+
+    private function isLateCheckoutDaycareFeeDescription($description): bool
+    {
+        $normalized = strtolower(trim((string) $description));
+        return in_array($normalized, ['late checkout daycare fee', 'late checkout fee'], true);
+    }
+
+    private function normalizeBoardingSpecialFeeItems(Appointment $appointment, array $items, array $checkinFlows = [], ?array $lateCheckoutData = null): array
+    {
+        if (!isBoardingService($appointment->service)) {
+            return $items;
+        }
+
+        $fleaTickFee = floatval(getBoardingFleaTickBreakdown($appointment, $checkinFlows)['amount'] ?? 0);
+        $lateCheckoutData = $lateCheckoutData ?: $this->resolveBoardingLateCheckoutDaycareFee($appointment);
+        $lateCheckoutFee = floatval($lateCheckoutData['late_fee'] ?? 0);
+        $shouldApplyLateCheckoutFee = (bool) ($lateCheckoutData['should_apply_fee'] ?? false);
+
+        $normalizedItems = [];
+        $hasFleaTickItem = false;
+        $hasLateCheckoutDaycareFeeItem = false;
+
+        foreach ($items as $itemData) {
+            $description = trim((string) ($itemData['description'] ?? ''));
+            $isFleaTickItem = $this->isFleaTickFeeDescription($description);
+            $isLateCheckoutDaycareFeeItem = $this->isLateCheckoutDaycareFeeDescription($description);
+
+            if ($isFleaTickItem) {
+                if ($fleaTickFee <= 0 || $hasFleaTickItem) {
+                    continue;
+                }
+
+                $hasFleaTickItem = true;
+                $itemData['description'] = 'Flea/Tick Detection Fee';
+                $itemData['price'] = $fleaTickFee;
+                $itemData['type'] = 'service';
+            }
+
+            if ($isLateCheckoutDaycareFeeItem) {
+                if (!$shouldApplyLateCheckoutFee || $lateCheckoutFee <= 0 || $hasLateCheckoutDaycareFeeItem) {
+                    continue;
+                }
+
+                $hasLateCheckoutDaycareFeeItem = true;
+                $itemData['description'] = 'Late Checkout Daycare Fee';
+                $itemData['price'] = $lateCheckoutFee;
+                $itemData['type'] = 'service';
+            }
+
+            $normalizedItems[] = $itemData;
+        }
+
+        if ($fleaTickFee > 0 && !$hasFleaTickItem) {
+            $normalizedItems[] = [
+                'description' => 'Flea/Tick Detection Fee',
+                'price' => $fleaTickFee,
+                'type' => 'service',
+            ];
+        }
+
+        if ($shouldApplyLateCheckoutFee && $lateCheckoutFee > 0 && !$hasLateCheckoutDaycareFeeItem) {
+            $normalizedItems[] = [
+                'description' => 'Late Checkout Daycare Fee',
+                'price' => $lateCheckoutFee,
+                'type' => 'service',
+            ];
+        }
+
+        return $normalizedItems;
     }
 
     public function sendCustomerEmail(Request $request, $id)
@@ -4415,8 +4520,35 @@ class AppointmentController extends Controller
             $checkout->appointment_id = $appointment->id;
         }
 
+        $existingCheckoutFlows = [];
+        if (!empty($checkout->flows)) {
+            $decodedExistingCheckoutFlows = is_array($checkout->flows)
+                ? $checkout->flows
+                : json_decode($checkout->flows, true);
+            $existingCheckoutFlows = is_array($decodedExistingCheckoutFlows) ? $decodedExistingCheckoutFlows : [];
+        }
+        $previousAppliedLateCheckoutFee = floatval($existingCheckoutFlows['applied_late_checkout_daycare_fee'] ?? 0);
+
         $checkout->date = $request->date;
         $checkout->notes = $request->notes;
+
+        $actualCheckoutAt = null;
+        if ($request->filled('actual_checkout_at')) {
+            try {
+                $actualCheckoutAt = Carbon::parse($request->actual_checkout_at);
+            } catch (\Throwable $e) {
+                $actualCheckoutAt = null;
+            }
+        }
+
+        if (!$actualCheckoutAt) {
+            $effectivePickupTime = $request->pickup_time ?: now()->format('H:i:s');
+            try {
+                $actualCheckoutAt = Carbon::parse($request->date . ' ' . $effectivePickupTime);
+            } catch (\Throwable $e) {
+                $actualCheckoutAt = Carbon::now();
+            }
+        }
 
         // For package appointments, save pickup time to appointment end_time
         if ($isPackageAppointment && $request->filled('pickup_time')) {
@@ -4426,6 +4558,12 @@ class AppointmentController extends Controller
 
         // Handle flows and pictures
         $flowsData = $request->flows ? json_decode($request->flows, true) : [];
+        if (!is_array($flowsData)) {
+            $flowsData = [];
+        }
+        $flowsData['actual_checkout_at'] = $actualCheckoutAt->format('Y-m-d H:i:s');
+        $flowsData['actual_checkout_date'] = $actualCheckoutAt->toDateString();
+        $flowsData['actual_checkout_time'] = $actualCheckoutAt->format('H:i:s');
 
         // Handle picture uploads
         $pictureNames = [];
@@ -4456,8 +4594,24 @@ class AppointmentController extends Controller
             ]);
         }
 
+        $appliedLateCheckoutDaycareFee = 0;
+        if (isBoardingService($appointment->service) && ($appointment->status ?? null) === 'completed') {
+            $checkoutForLateFee = clone $checkout;
+            $checkoutForLateFee->flows = $flowsData;
+            $lateCheckoutBreakdown = getBoardingLateCheckoutDaycareBreakdown($appointment, $checkoutForLateFee, 1);
+            $appliedLateCheckoutDaycareFee = floatval($lateCheckoutBreakdown['fee'] ?? 0);
+        }
+        $flowsData['applied_late_checkout_daycare_fee'] = $appliedLateCheckoutDaycareFee;
+
         $checkout->flows = json_encode($flowsData);
         $checkout->save();
+
+        if (isBoardingService($appointment->service) && ($appointment->status ?? null) === 'completed') {
+            $storedEstimatedPrice = floatval($appointment->estimated_price ?? 0);
+            $baseEstimatedPrice = max(0, $storedEstimatedPrice - $previousAppliedLateCheckoutFee);
+            $appointment->estimated_price = round($baseEstimatedPrice + $appliedLateCheckoutDaycareFee, 2);
+            $appointment->save();
+        }
 
         $invoice = Invoice::where('appointment_id', $appointment->id)->first();
         $isInvoicePaid = $invoice && $invoice->status === 'paid';

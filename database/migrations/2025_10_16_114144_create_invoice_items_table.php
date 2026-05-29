@@ -16,7 +16,7 @@ return new class extends Migration
             $table->foreignId('invoice_id')->constrained('invoices')->onDelete('cascade');
             $table->string('item_name');
             $table->decimal('price', 10, 2)->default(0.00);
-            $table->enum('item_type', ['service', 'inventory'])->default('service');
+            $table->enum('item_type', ['service', 'inventory', 'custom'])->default('service');
             $table->timestamps();
         });
     }

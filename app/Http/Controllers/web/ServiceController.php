@@ -172,11 +172,17 @@ class ServiceController extends Controller
                 $service->duration = $request->duration;
             }
         } else if (isDaycareService($service)) {
-            $service->price_small = $request->price_half_daycare;
-            $service->price_medium = $request->price_full_daycare;
+            $daycarePrice = $request->input('price_daycare');
+            $daycareDuration = $request->input('duration_daycare');
 
-            $service->duration_small = $request->duration_half_daycare;
-            $service->duration_medium = $request->duration_full_daycare;
+            $service->price = $daycarePrice;
+            $service->duration = $daycareDuration;
+
+            // Mirror daycare values to size-based columns for backward compatibility in existing flows.
+            $service->price_small = $daycarePrice;
+            $service->price_medium = $daycarePrice;
+            $service->duration_small = $daycareDuration;
+            $service->duration_medium = $daycareDuration;
         } else if (isPrivateTrainingService($service)) {
             $service->price_small = $request->price_half_training;
             $service->price_medium = $request->price_one_training;
@@ -303,11 +309,17 @@ class ServiceController extends Controller
                 $service->duration = $request->duration;
             }
         } else if (isDaycareService($service)) {
-            $service->price_small = $request->price_half_daycare;
-            $service->price_medium = $request->price_full_daycare;
+            $daycarePrice = $request->input('price_daycare');
+            $daycareDuration = $request->input('duration_daycare');
 
-            $service->duration_small = $request->duration_half_daycare;
-            $service->duration_medium = $request->duration_full_daycare;
+            $service->price = $daycarePrice;
+            $service->duration = $daycareDuration;
+
+            // Mirror daycare values to size-based columns for backward compatibility in existing flows.
+            $service->price_small = $daycarePrice;
+            $service->price_medium = $daycarePrice;
+            $service->duration_small = $daycareDuration;
+            $service->duration_medium = $daycareDuration;
         } else if (isPrivateTrainingService($service)) {
             $service->price_small = $request->price_half_training;
             $service->price_medium = $request->price_one_training;

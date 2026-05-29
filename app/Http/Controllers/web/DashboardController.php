@@ -140,6 +140,28 @@ class DashboardController extends Controller
         $this->syncBoardingFleaTickInvoiceItem($appointment, $currentFleaTickAmount);
     }
 
+    private function resolveBoardingLateCheckoutDaycareFeeForDisplay(Appointment $appointment, ?Checkout $checkout = null): float
+    {
+        if (($appointment->status ?? null) !== 'completed') {
+            return 0;
+        }
+
+        $checkoutFlows = [];
+        if ($checkout && !empty($checkout->flows)) {
+            $checkoutFlows = is_array($checkout->flows)
+                ? $checkout->flows
+                : (json_decode($checkout->flows, true) ?: []);
+        }
+
+        $persistedAppliedFee = floatval($checkoutFlows['applied_late_checkout_daycare_fee'] ?? 0);
+        if ($persistedAppliedFee > 0) {
+            return $persistedAppliedFee;
+        }
+
+        $breakdown = getBoardingLateCheckoutDaycareBreakdown($appointment, $checkout, 1);
+        return floatval($breakdown['fee'] ?? 0);
+    }
+
     public function index(Request $request)
     {
         $active = 'dashboard';
@@ -427,6 +449,8 @@ class DashboardController extends Controller
         $additionalServicesByPet = $appointment->additional_services_by_pet ?? [];
         $additionalServiceIds = $appointment->additional_service_ids_flat ?? [];
         $additionalServices = Service::whereIn('id', array_filter($additionalServiceIds))->get()->keyBy('id');
+        $checkoutForLateFee = Checkout::where('appointment_id', $appointment->id)->first();
+        $lateCheckoutDaycareFeeDisplay = 0;
 
         // Set up the estimated price of the appointment
         $computedEstimatedPrice = 0;
@@ -463,8 +487,12 @@ class DashboardController extends Controller
 
             $checkedInFlowsForPricing = is_array(optional($checkedIn)->flows) ? $checkedIn->flows : [];
             $fleaTickFee = floatval(getBoardingFleaTickBreakdown($appointment, $checkedInFlowsForPricing)['amount'] ?? 0);
+            $lateCheckoutDaycareFee = ($appointment->status === 'completed')
+                ? $this->resolveBoardingLateCheckoutDaycareFeeForDisplay($appointment, $checkoutForLateFee)
+                : 0;
+            $lateCheckoutDaycareFeeDisplay = $lateCheckoutDaycareFee;
 
-            $computedEstimatedPrice = max(0, $boardingBaseTotal + $additionalServiceTotal - $familyDiscountAmount + $fleaTickFee);
+            $computedEstimatedPrice = max(0, $boardingBaseTotal + $additionalServiceTotal - $familyDiscountAmount + $fleaTickFee + $lateCheckoutDaycareFee);
         } else {
             $computedEstimatedPrice = $resolveAppointmentServicePrice($appointment->service, $appointment->pet->size, $appointment->metadata);
 
@@ -524,7 +552,7 @@ class DashboardController extends Controller
             $process->flows = json_decode($process->flows, true);
         }
 
-        $checkout = Checkout::where('appointment_id', $appointment->id)->first();
+        $checkout = $checkoutForLateFee;
 
         if ($checkout && $checkout->flows) {
             $checkout->flows = json_decode($checkout->flows, true);
@@ -569,7 +597,7 @@ class DashboardController extends Controller
         $assignmentLabel = $assignmentLocation['label'];
         $staySummary = $this->buildCheckoutStaySummary($appointment, $checkedIn);
 
-        return view('dashboard.appointment', compact('appointment', 'staffs', 'checkedIn', 'process', 'checkout', 'invoice', 'additionalServices', 'lastAppointmentRatings', 'invoiceDiscountRules', 'petBehaviors', 'dbEstimatedPrice', 'assignmentLabel', 'staySummary'));
+        return view('dashboard.appointment', compact('appointment', 'staffs', 'checkedIn', 'process', 'checkout', 'invoice', 'additionalServices', 'lastAppointmentRatings', 'invoiceDiscountRules', 'petBehaviors', 'dbEstimatedPrice', 'assignmentLabel', 'staySummary', 'lateCheckoutDaycareFeeDisplay'));
     }
 
     private function buildCheckoutStaySummary(Appointment $appointment, ?Checkin $checkin): array
