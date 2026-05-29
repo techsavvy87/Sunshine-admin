@@ -171,6 +171,36 @@ if (!function_exists('isBoardingService')) {
     }
 }
 
+if (!function_exists('dedupeBoardingAutoFeeInvoiceItems')) {
+    function dedupeBoardingAutoFeeInvoiceItems($items): array
+    {
+        $dedupeNames = [
+            'late checkout daycare fee',
+            'flea/tick detection fee',
+        ];
+
+        $normalizedItems = [];
+        $seenNames = [];
+
+        foreach (collect($items ?? [])->values() as $item) {
+            $itemName = trim((string) data_get($item, 'item_name', data_get($item, 'description', '')));
+            $normalizedName = strtolower($itemName);
+
+            if (in_array($normalizedName, $dedupeNames, true)) {
+                if (in_array($normalizedName, $seenNames, true)) {
+                    continue;
+                }
+
+                $seenNames[] = $normalizedName;
+            }
+
+            $normalizedItems[] = $item;
+        }
+
+        return $normalizedItems;
+    }
+}
+
 if (!function_exists('isPackageService')) {
     function isPackageService($service)
     {

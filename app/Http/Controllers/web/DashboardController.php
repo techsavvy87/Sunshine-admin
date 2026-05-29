@@ -31,6 +31,9 @@ class DashboardController extends Controller
     private function syncBoardingFleaTickInvoiceItem(Appointment $appointment, float $fleaTickFee): void
     {
         $invoice = Invoice::where('appointment_id', $appointment->id)->first();
+        if ($invoice) {
+            $invoice->setRelation('items', collect(dedupeBoardingAutoFeeInvoiceItems($invoice->items ?? []))->values());
+        }
         if (!$invoice) {
             return;
         }

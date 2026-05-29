@@ -424,7 +424,7 @@
     @php
       $headerInvoiceItems = collect();
       if ($invoice && $invoice->items) {
-        $headerInvoiceItems = $invoice->items;
+        $headerInvoiceItems = collect(dedupeBoardingAutoFeeInvoiceItems($invoice->items))->values();
       }
     @endphp
     @if (($appointment->estimated_price ?? 0) || ((float) ($dbEstimatedPrice ?? 0) > 0) || $headerInvoiceItems->count() > 0)
@@ -1361,6 +1361,8 @@
                           }
                           $mainPricePerMile = floatval($appointment->service->price_per_mile ?? 0);
                         @endphp
+                      @endif
+                      @if(!($invoice && $invoice->items && $invoice->items->count() > 0))
                         <tr class="service-row">
                           <td>{{ $row++ }}</td>
                           <td width="56%">
@@ -1460,8 +1462,14 @@
                         @endif
                       @endif
                       @if($invoice && $invoice->items)
-                        @foreach($invoice->items as $invoiceItem)
-                          @if($invoiceItem->item_type === 'inventory')
+                        @php
+                          $displayInvoiceItems = collect(dedupeBoardingAutoFeeInvoiceItems($invoice->items))->values();
+                        @endphp
+                        @foreach($displayInvoiceItems as $invoiceItem)
+                          @php
+                            $invoiceItemType = strtolower(trim((string) ($invoiceItem->item_type ?? 'service')));
+                          @endphp
+                          @if($invoiceItemType === 'inventory')
                           <tr class="inventory-row" data-item-id="{{ $invoiceItem->id }}" data-item-type="inventory">
                             <td>{{ $row++ }}</td>
                             <td width="56%">{{ $invoiceItem->item_name }}</td>
@@ -1474,8 +1482,21 @@
                               @endif
                             </td>
                           </tr>
-                          @elseif($invoiceItem->item_type === 'custom')
+                          @elseif($invoiceItemType === 'custom')
                           <tr class="service-row custom-line-row" data-item-id="{{ $invoiceItem->id }}" data-item-type="custom">
+                            <td>{{ $row++ }}</td>
+                            <td width="56%">{{ $invoiceItem->item_name }}</td>
+                            <td>${{ number_format($invoiceItem->price, 2) }}</td>
+                            <td>
+                              @if(!$isInvoiceEditingLocked)
+                              <button type="button" class="btn btn-sm btn-ghost btn-circle" style="height: 16px" onclick="removeExistingInvoiceItem({{ $invoiceItem->id }})">
+                                <span class="iconify lucide--trash-2 size-3 text-error"></span>
+                              </button>
+                              @endif
+                            </td>
+                          </tr>
+                          @else
+                          <tr class="service-row" data-item-id="{{ $invoiceItem->id }}" data-item-type="{{ $invoiceItemType ?: 'service' }}">
                             <td>{{ $row++ }}</td>
                             <td width="56%">{{ $invoiceItem->item_name }}</td>
                             <td>${{ number_format($invoiceItem->price, 2) }}</td>
@@ -1533,16 +1554,16 @@
                           floatval($headerLateCheckoutDaycareFee ?? 0)
                         );
                       @endphp
-                      <tr id="flea_tick_fee_row" class="service-row flea-tick-row" data-initial-fee="{{ number_format(($boardingFleaTickBreakdown['amount'] ?? 0), 2, '.', '') }}" style="{{ ($boardingFleaTickBreakdown['amount'] ?? 0) > 0 ? '' : 'display:none;' }}">
+                      <tr id="flea_tick_fee_row" class="service-row flea-tick-row" data-initial-fee="{{ number_format(($boardingFleaTickBreakdown['amount'] ?? 0), 2, '.', '') }}" style="{{ $invoice || ($boardingFleaTickBreakdown['amount'] ?? 0) <= 0 ? 'display:none;' : '' }}">
                         <td>{{ $row++ }}</td>
                         <td width="56%">Flea/Tick Detection Fee</td>
                         <td>${{ number_format($boardingFleaTickBreakdown['amount'] ?? 0, 2) }}</td>
                         <td></td>
                       </tr>
-                      <tr id="late_checkout_daycare_fee_row" class="service-row late-checkout-daycare-row" data-initial-fee="{{ number_format($invoiceLateCheckoutDaycareFee, 2, '.', '') }}" style="{{ $invoiceLateCheckoutDaycareFee > 0 ? '' : 'display:none;' }}">
+                      <tr id="late_checkout_daycare_fee_row" class="service-row late-checkout-daycare-row" data-initial-fee="{{ number_format($persistedLateCheckoutInvoiceFee > 0 ? 0 : $invoiceLateCheckoutDaycareFee, 2, '.', '') }}" style="{{ $invoice || $persistedLateCheckoutInvoiceFee > 0 || $invoiceLateCheckoutDaycareFee <= 0 ? 'display:none;' : '' }}">
                         <td>{{ $row++ }}</td>
                         <td width="56%">Late Checkout Daycare Fee</td>
-                        <td>${{ number_format($invoiceLateCheckoutDaycareFee, 2) }}</td>
+                        <td>${{ number_format($persistedLateCheckoutInvoiceFee > 0 ? $persistedLateCheckoutInvoiceFee : $invoiceLateCheckoutDaycareFee, 2) }}</td>
                         <td></td>
                       </tr>
                     </tbody>
@@ -5663,6 +5684,7 @@
   const lateCheckoutThresholdHours = parseFloat(@json($headerLateCheckoutThresholdHours ?? 1));
   const daycareHourlyRate = parseFloat(@json($headerLateCheckoutHourlyRate ?? 0));
   const lateCheckoutInitialFee = parseFloat(@json($invoiceLateCheckoutDaycareFee ?? 0));
+  const hasPersistedLateCheckoutInvoiceFee = {{ ($persistedLateCheckoutInvoiceFee ?? 0) > 0 ? 'true' : 'false' }};
   const lateCheckoutFormulaFee = parseFloat(@json($headerLateCheckoutFormulaFee ?? 0));
   const scheduledPickupDateTime = @json((!empty($appointment->end_date) && !empty($appointment->end_time)) ? ($appointment->end_date . ' ' . $appointment->end_time) : null);
   const canOverrideInvoiceLock = {{ ($canOverrideInvoiceLock ?? false) ? 'true' : 'false' }};
@@ -5720,8 +5742,25 @@
     });
   }
 
+  function shouldSkipDuplicateAutoFee(description, seenAutoFees) {
+    const normalizedDescription = String(description || '').trim().toLowerCase();
+    const autoFeeDescriptions = ['late checkout daycare fee', 'flea/tick detection fee'];
+
+    if (!autoFeeDescriptions.includes(normalizedDescription)) {
+      return false;
+    }
+
+    if (seenAutoFees.has(normalizedDescription)) {
+      return true;
+    }
+
+    seenAutoFees.add(normalizedDescription);
+    return false;
+  }
+
   function collectInvoiceItems() {
     const items = [];
+    const seenAutoFees = new Set();
 
     $('#pricing_table tr.service-row, #pricing_table tr.inventory-row, #pricing_table tr.coat-fee-row').each(function() {
       const $row = $(this);
@@ -5730,6 +5769,9 @@
       }
 
       const description = getInvoiceRowDescription($row);
+      if (shouldSkipDuplicateAutoFee(description, seenAutoFees)) {
+        return;
+      }
       const price = getInvoiceRowPrice($row);
       if (!description) {
         return;
@@ -5796,6 +5838,20 @@
   function syncLateCheckoutDaycareFeeRow() {
     const row = $('#late_checkout_daycare_fee_row');
     if (!row.length) {
+      return { fee: 0, lateHours: 0, isLate: false };
+    }
+
+    if (invoiceExists) {
+      row.hide();
+      row.attr('data-initial-fee', '0.00');
+      row.find('td:nth-child(3)').text('$0.00');
+      return { fee: 0, lateHours: 0, isLate: false };
+    }
+
+    if (hasPersistedLateCheckoutInvoiceFee) {
+      row.hide();
+      row.attr('data-initial-fee', '0.00');
+      row.find('td:nth-child(3)').text('$0.00');
       return { fee: 0, lateHours: 0, isLate: false };
     }
 
@@ -5898,7 +5954,8 @@
 
     $(this).closest('tr').remove();
     refreshPricingRowIndexes();
-    updateTotals();
+    const deleteTotals = updateTotals();
+    updateDetailSectionSummaryFromInvoice(collectInvoiceItems(), deleteTotals);
   });
 
   if (typeof updateTotals === 'function') {
@@ -5981,7 +6038,8 @@
 
     $(`tr[data-item-id="${itemId}"]`).remove();
     refreshPricingRowIndexes();
-    updateTotals();
+    const deleteTotals = updateTotals();
+    updateDetailSectionSummaryFromInvoice(collectInvoiceItems(), deleteTotals);
   }
 
   function toMomentOrNow(value) {
@@ -6055,8 +6113,15 @@
 
     // Calculate the Total Price of Services
     let serviceTotal = 0;
+    const seenAutoFees = new Set();
     $('.service-row:visible, .coat-fee-row:visible').each(function() {
-      const price = getInvoiceRowPrice($(this));
+      const $row = $(this);
+      const description = getInvoiceRowDescription($row);
+      if (shouldSkipDuplicateAutoFee(description, seenAutoFees)) {
+        return;
+      }
+
+      const price = getInvoiceRowPrice($row);
       if (!isNaN(price)) {
         serviceTotal += price;
       }

@@ -4070,22 +4070,12 @@ class AppointmentController extends Controller
 
         // Save invoice items
         $items = is_array($request->items) ? $request->items : [];
-
-        if (isBoardingService($appointment->service)) {
-            $checkin = Checkin::where('appointment_id', $appointment->id)->first();
-            $checkinFlows = [];
-            if ($checkin && !empty($checkin->flows)) {
-                $decodedCheckinFlows = json_decode($checkin->flows, true);
-                $checkinFlows = is_array($decodedCheckinFlows) ? $decodedCheckinFlows : [];
-            }
-            $lateCheckoutData = $this->resolveBoardingLateCheckoutDaycareFee($appointment);
-            $items = $this->normalizeBoardingSpecialFeeItems($appointment, $items, $checkinFlows, $lateCheckoutData);
-        }
+        $items = dedupeBoardingAutoFeeInvoiceItems($items);
 
         $itemsForEmail = [];
-        if ($items && is_array($items)) {
-            // Delete existing items
-            InvoiceItem::where('invoice_id', $invoice->id)->delete();
+        // Always delete existing items so that removed items are properly cleared.
+        InvoiceItem::where('invoice_id', $invoice->id)->delete();
+        if (is_array($items)) {
             // Add new items
             foreach ($items as $itemData) {
                 $item = new InvoiceItem;
@@ -4100,6 +4090,14 @@ class AppointmentController extends Controller
                 ];
             }
         }
+
+        $invoice->load('items');
+        $invoiceItemSummary = $this->summarizeInvoiceItemsFromInvoice($invoice);
+        $appliedDiscountAmount = floatval($invoice->discount_amount ?? 0);
+        $invoiceSubtotal = max(0, $invoiceItemSummary['total_service_price'] - $appliedDiscountAmount + $invoiceItemSummary['total_inventory_amount']);
+
+        $appointment->estimated_price = round($invoiceSubtotal, 2);
+        $appointment->save();
 
         $discountInfo = [
             'discount_title' => $resolvedDiscountTitle,
@@ -4162,121 +4160,18 @@ class AppointmentController extends Controller
 
     private function sendInvoiceEmail($invoice, $appointment, $items, $discountInfo = [])
     {
-        $mainServiceItems = [];
+        $invoice->loadMissing('items');
+        $invoiceItemSummary = $this->summarizeInvoiceItemsFromInvoice($invoice);
+
+        $mainServiceItems = $invoiceItemSummary['main_service_items'];
         $additionalServiceItems = [];
-        $inventoryItems = [];
-
-        $checkin = Checkin::where('appointment_id', $appointment->id)->first();
-        $checkinFlows = [];
-        if ($checkin && $checkin->flows) {
-            $decodedFlows = json_decode($checkin->flows, true);
-            $checkinFlows = is_array($decodedFlows) ? $decodedFlows : [];
-        }
-
-        $appointment->load('service.category');
-        $mainServiceName = $appointment->service->name ?? '';
-
-        $additionalServicesByPet = $appointment->additional_services_by_pet ?? [];
-        $flatAdditionalServiceIds = collect($additionalServicesByPet)
-            ->flatten()
-            ->map(fn ($serviceId) => (int) $serviceId)
-            ->filter(fn ($serviceId) => $serviceId > 0)
-            ->unique()
-            ->values();
-
-        $additionalServices = $flatAdditionalServiceIds->isNotEmpty()
-            ? Service::whereIn('id', $flatAdditionalServiceIds->all())->get()->keyBy('id')
-            : collect();
-
-        $additionalServiceNames = $additionalServices->pluck('name')->values()->all();
-
-        $petsForAdditionalEmail = $appointment->family_pets;
-        if ($petsForAdditionalEmail->isEmpty() && $appointment->pet) {
-            $petsForAdditionalEmail = collect([$appointment->pet]);
-        }
-
-        $additionalServicesGroupedByPet = $petsForAdditionalEmail->map(function ($pet) use ($additionalServicesByPet, $additionalServices) {
-            $serviceNames = collect($additionalServicesByPet[$pet->id] ?? [])
-                ->map(fn ($serviceId) => $additionalServices->get((int) $serviceId)?->name)
-                ->filter()
-                ->values()
-                ->all();
-
-            if (empty($serviceNames)) {
-                return null;
-            }
-
-            return [
-                'pet_name' => $pet->name,
-                'services' => $serviceNames,
-            ];
-        })->filter()->values()->all();
-
-        $groupClassNames = [];
-        if (isGroupClassService($appointment->service) && $appointment->metadata && isset($appointment->metadata['group_class_ids'])) {
-            $groupClassIds = explode(',', $appointment->metadata['group_class_ids']);
-            $groupClasses = GroupClass::whereIn('id', $groupClassIds)->get();
-            $groupClassNames = $groupClasses->pluck('name')->toArray();
-        }
-
-        $totalServicePrice = 0;
-        $totalInventoryAmount = 0;
-
-        $fleaTickBreakdown = isBoardingService($appointment->service)
-            ? getBoardingFleaTickBreakdown($appointment, $checkinFlows)
-            : ['checked_pet_count' => 0, 'amount' => 0];
-        $fleaTickFee = floatval($fleaTickBreakdown['amount'] ?? 0);
-        $lateCheckoutData = $this->resolveBoardingLateCheckoutDaycareFee($appointment);
-        $lateCheckoutFee = floatval($lateCheckoutData['late_fee'] ?? 0);
-        $shouldApplyLateCheckoutFee = (bool) ($lateCheckoutData['should_apply_fee'] ?? false);
-
-        if (isBoardingService($appointment->service)) {
-            $items = $this->normalizeBoardingSpecialFeeItems($appointment, is_array($items) ? $items : [], $checkinFlows, $lateCheckoutData);
-        }
-
-        if ($items && is_array($items)) {
-            foreach ($items as $itemData) {
-                $itemType = $itemData['type'] ?? 'service';
-                $itemDescription = $itemData['description'] ?? '';
-                $itemPrice = floatval($itemData['price'] ?? 0);
-
-                if ($itemType === 'inventory') {
-                    $inventoryItems[] = [
-                        'description' => $itemDescription,
-                        'price' => $itemPrice
-                    ];
-                    $totalInventoryAmount += $itemPrice;
-                } elseif ($itemType === 'service') {
-                    if (isGroupClassService($appointment->service) && in_array($itemDescription, $groupClassNames)) {
-                        $mainServiceItems[] = [
-                            'description' => $itemDescription,
-                            'price' => $itemPrice
-                        ];
-                    } elseif ($itemDescription === $mainServiceName) {
-                        $mainServiceItems[] = [
-                            'description' => $itemDescription,
-                            'price' => $itemPrice
-                        ];
-                    } elseif (
-                        in_array($itemDescription, $additionalServiceNames)
-                        || collect($additionalServiceNames)->contains(function ($serviceName) use ($itemDescription) {
-                            return str_starts_with($itemDescription, $serviceName . ' - ');
-                        })
-                    ) {
-                        $additionalServiceItems[] = [
-                            'description' => $itemDescription,
-                            'price' => $itemPrice
-                        ];
-                    } else {
-                        $mainServiceItems[] = [
-                            'description' => $itemDescription,
-                            'price' => $itemPrice
-                        ];
-                    }
-                    $totalServicePrice += $itemPrice;
-                }
-            }
-        }
+        $inventoryItems = $invoiceItemSummary['inventory_items'];
+        $additionalServicesGroupedByPet = [];
+        $totalServicePrice = $invoiceItemSummary['total_service_price'];
+        $totalInventoryAmount = $invoiceItemSummary['total_inventory_amount'];
+        $fleaTickFee = 0;
+        $lateCheckoutFee = 0;
+        $shouldApplyLateCheckoutFee = false;
 
         $discountAmount = floatval($discountInfo['discount_amount'] ?? 0);
         $subtotalAmount = max(0, $totalServicePrice - $discountAmount + $totalInventoryAmount);
@@ -4304,15 +4199,57 @@ class AppointmentController extends Controller
             'subtotal_amount' => $subtotalAmount,
             'state_tax_rate' => $stateTaxRate,
             'state_tax_amount' => $stateTaxAmount,
-            'flea_tick_fee' => $fleaTickFee,
-            'flea_tick_checked_pet_count' => (int) ($fleaTickBreakdown['checked_pet_count'] ?? 0),
-            'late_checkout_hours' => floatval($lateCheckoutData['late_hours'] ?? 0),
-            'late_checkout_daycare_fee' => $shouldApplyLateCheckoutFee ? $lateCheckoutFee : 0,
+            'flea_tick_fee' => 0,
+            'flea_tick_checked_pet_count' => 0,
+            'late_checkout_hours' => 0,
+            'late_checkout_daycare_fee' => 0,
             'total' => $totalAmount,
             'total_amount' => $totalAmount
         ];
 
         Mail::to($invoice->email)->send(new InvoiceMail($emailData));
+    }
+
+    private function summarizeInvoiceItemsFromInvoice(Invoice $invoice): array
+    {
+        $invoiceItems = $invoice->relationLoaded('items')
+            ? $invoice->items
+            : $invoice->items()->get();
+        $invoiceItems = collect(dedupeBoardingAutoFeeInvoiceItems($invoiceItems))->values();
+
+        $mainServiceItems = [];
+        $inventoryItems = [];
+        $totalServicePrice = 0;
+        $totalInventoryAmount = 0;
+
+        foreach ($invoiceItems as $invoiceItem) {
+            $itemType = strtolower(trim((string) ($invoiceItem->item_type ?? 'service')));
+            $itemDescription = trim((string) ($invoiceItem->item_name ?? ''));
+            $itemPrice = floatval($invoiceItem->price ?? 0);
+
+            if ($itemType === 'inventory') {
+                $inventoryItems[] = [
+                    'description' => $itemDescription,
+                    'price' => $itemPrice,
+                ];
+                $totalInventoryAmount += $itemPrice;
+                continue;
+            }
+
+            $mainServiceItems[] = [
+                'description' => $itemDescription,
+                'price' => $itemPrice,
+            ];
+            $totalServicePrice += $itemPrice;
+        }
+
+        return [
+            'main_service_items' => $mainServiceItems,
+            'additional_service_items' => [],
+            'inventory_items' => $inventoryItems,
+            'total_service_price' => $totalServicePrice,
+            'total_inventory_amount' => $totalInventoryAmount,
+        ];
     }
 
     private function resolveBoardingLateCheckoutDaycareFee(Appointment $appointment): array
