@@ -1483,12 +1483,17 @@
     function bindVaccinationSelectChangeHandler() {
       $('#vaccinations_container .vaccination-type-select')
         .off('change.uniqueVaccination')
-        .on('change.uniqueVaccination', function() {
-          unlockPageScroll();
-          setTimeout(function() {
-            refreshVaccinationDropdowns();
-            unlockPageScroll();
-          }, 0);
+        .on('change.uniqueVaccination', function(e) {
+          const value = ($(this).val() || '').trim();
+
+          // If user clicked Select2 clear icon, do not destroy/rebuild Select2.
+          // This prevents page scroll jump.
+          if (value === '') {
+            return;
+          }
+
+          $(this).select2('close');
+          refreshVaccinationDropdowns();
         });
     }
 
@@ -1535,14 +1540,8 @@
           placeholder: 'Select vaccination',
           allowClear: true,
           width: '100%',
-          dropdownParent: $('#vaccinations_section')
+          dropdownParent: row.closest('.card-body')
         });
-
-        $select
-          .off('select2:open.scrollFix select2:close.scrollFix select2:select.scrollFix select2:unselect.scrollFix')
-          .on('select2:open.scrollFix select2:close.scrollFix select2:select.scrollFix select2:unselect.scrollFix', function() {
-            setTimeout(unlockPageScroll, 0);
-          });
       });
     }
 
