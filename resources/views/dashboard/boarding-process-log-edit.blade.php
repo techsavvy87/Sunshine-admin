@@ -267,17 +267,10 @@
                                             <p>Click on a process item to view pet details</p>
                                         </div>
                                         {{-- Check Pet Form --}}
-                                        {{-- Check Pet Form Table --}}
-                                        <div id="check_pet_form_container" class="p-4 overflow-auto"
-                                            style="display: none;">
-                                            <table class="table" id="check_pet_table">
-                                                <thead id="check_pet_thead">
-                                                    {{-- Table headers will be dynamically generated here --}}
-                                                </thead>
-                                                <tbody id="check_pet_tbody">
-                                                    {{-- Table rows will be dynamically generated here --}}
-                                                </tbody>
-                                            </table>
+                                        <div id="check_pet_form_container" class="p-4" style="display: none;">
+                                            <div id="check_pet_accordion" class="space-y-3">
+                                                {{-- Accordion items will be dynamically generated here --}}
+                                            </div>
                                         </div>
                                         {{-- Treatment Plan Form Table --}}
                                         <div id="treatment_plan_form_container" class="p-4 overflow-auto"
@@ -998,7 +991,7 @@ function loadPetDetails() {
 
     if (currentProcessItem === 'check_pet') {
         $('#check_pet_form_container').show();
-        $('#check_pet_tbody').html('<tr><td colspan="12" class="text-center p-4">Loading...</td></tr>');
+        $('#check_pet_accordion').html('<div class="text-center p-4 text-base-content/70">Loading...</div>');
         $.ajax({
             url: '{{ route("boarding-process-log-get-checkin-data") }}',
             method: 'POST',
@@ -1662,100 +1655,140 @@ $('#pet_details_search').on('input', function() {
 });
 
 function renderCheckPetForm() {
-    const bodyParts = [
-        'Nose', 'Ears', 'Eyes', 'Mouth', 'Body/Coat', 'Paws/Feet', 'Abdomen', 'Digestive', 'Diarrhea'
-    ];
+        const bodyParts = [
+                { key: 'nose', label: 'Nose' },
+                { key: 'eyes', label: 'Eyes' },
+                { key: 'ears', label: 'Ears' },
+                { key: 'mouth', label: 'Mouth' },
+                { key: 'body_coat', label: 'Skin / Coat' },
+                { key: 'paws_feet', label: 'Feet' },
+                { key: 'abdomen', label: 'Abdomen' },
+                { key: 'digestive', label: 'Digestive' },
+                { key: 'diarrhea', label: 'Diarrhea' }
+        ];
 
-    // Get saved check data
-    const currentData = workflowData[currentProcessItem] || {};
-    const savedCheckData = currentData.check_data || {};
-    const savedFleaTickData = currentData.flea_tick_data || {};
+        const currentData = workflowData[currentProcessItem] || {};
+        const savedCheckData = currentData.check_data || {};
+        const savedFleaTickData = currentData.flea_tick_data || {};
+        const allOkKeys = ['nose', 'eyes', 'ears', 'mouth', 'body_coat', 'paws_feet', 'abdomen', 'digestive', 'diarrhea'];
 
-    // Build table header
-    let headerHtml = '<tr><th style="min-width: 200px;">Pet Name</th><th style="min-width: 200px;">Customer</th>';
-    bodyParts.forEach(part => {
-        headerHtml += `<th style="text-align: center; min-width: 90px;">${part}</th>`;
-    });
-    headerHtml += '<th style="text-align: center; min-width: 150px;">Fleas/Ticks</th>';
-    headerHtml += '</tr>';
-    $('#check_pet_thead').html(headerHtml);
+        let bodyHtml = '';
+        selectedAppointmentIds.forEach(appointmentId => {
+                const pet = appointmentToPetMap[appointmentId];
+                if (!pet) return;
 
-    // Build table body
-    let bodyHtml = '';
-    selectedAppointmentIds.forEach(appointmentId => {
-        const pet = appointmentToPetMap[appointmentId];
-        if (!pet) return;
+                const petAvatarUrl = pet.pet_img ? '{{ asset("storage/pets/") }}/' + pet.pet_img : '{{ asset("images/no_image.jpg") }}';
+                const savedPetData = savedCheckData[appointmentId] || {};
+                const fleaTickChecked = isTruthyBoardingValue(savedFleaTickData[appointmentId]);
+                const hasConcern = bodyParts.some(part => ((savedPetData[part.key] || {}).status || '') === 'issue');
+                const allOkChecked = allOkKeys.every(key => ((savedPetData[key] || {}).status || '') === 'okay');
+                const badgeState = hasConcern ? 'concern' : (allOkChecked ? 'health' : 'incomplete');
 
-        const petAvatarUrl = pet.pet_img ?
-            '{{ asset("storage/pets/") }}/' + pet.pet_img :
-            '{{ asset("images/no_image.jpg") }}';
+                bodyHtml += `<details class="collapse collapse-arrow bg-base-100 border border-base-300 rounded-box" data-appointment-id="${appointmentId}" ${hasConcern ? '' : 'open'}>`;
+                bodyHtml += `<summary class="collapse-title px-4 py-3 pr-14"><div class="flex items-center gap-3"><img src="${petAvatarUrl}" alt="Pet Image" class="mask mask-squircle bg-base-200 size-10" /><div><p class="font-medium leading-tight">${pet.pet_name || 'N/A'}</p><p class="text-xs text-base-content/70">${pet.customer_name || 'N/A'}</p></div>${badgeState === 'incomplete' ? '' : `<span class="badge check-pet-status-badge ${badgeState === 'concern' ? 'badge-error badge-soft' : 'badge-success badge-soft'}" data-appointment-id="${appointmentId}">${badgeState === 'concern' ? 'Concern' : 'Health'}</span>`}</div></summary>`;
+                bodyHtml += `<div class="collapse-content px-4 pb-4">`;
+                bodyHtml += `<div class="flex flex-wrap items-center justify-between gap-3 mb-4 border-b border-base-300 pb-3">`;
+                bodyHtml += `<label class="label cursor-pointer gap-2 py-0 min-h-0"><input class="checkbox checkbox-sm check-pet-all-ok" type="checkbox" data-appointment-id="${appointmentId}" ${allOkChecked ? 'checked' : ''} /><span class="label-text font-medium text-sm">All OK</span></label>`;
+                bodyHtml += `<label class="label cursor-pointer gap-2 py-0 min-h-0"><input class="checkbox checkbox-sm flea-tick-checkbox" type="checkbox" data-appointment-id="${appointmentId}" ${fleaTickChecked ? 'checked' : ''} /><span class="label-text text-sm">Fleas/Ticks Detected</span></label>`;
+                bodyHtml += `</div>`;
 
-        const customerAvatarUrl = pet.customer_avatar ?
-            '{{ asset("storage/profiles/") }}/' + pet.customer_avatar :
-            '{{ asset("images/default-user-avatar.png") }}';
+                bodyParts.forEach(part => {
+                        const fieldId = `check_${appointmentId}_${part.key}`;
+                        const savedPartData = savedPetData[part.key] || {};
+                        const savedStatus = savedPartData.status || '';
+                        const savedNote = (savedPartData.note || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                        const showNote = savedStatus === 'issue';
 
-        const savedPetData = savedCheckData[appointmentId] || {};
-        const savedFleaTick = isTruthyBoardingValue(savedFleaTickData[appointmentId]);
-        const fleaTickChecked = savedFleaTick;
+                        bodyHtml += `<div class="py-3 border-b border-base-200 last:border-b-0">`;
+                        bodyHtml += `<div class="grid grid-cols-1 md:grid-cols-[140px_1fr] gap-2 md:gap-4 items-start">`;
+                        bodyHtml += `<p class="text-sm font-medium">${part.label}</p>`;
+                        bodyHtml += `<div><div class="flex flex-wrap items-center gap-4">`;
+                        bodyHtml += `<label class="label cursor-pointer gap-2 py-0 min-h-0"><input type="radio" name="${fieldId}" value="okay" class="radio radio-sm radio-primary check-part-radio" data-appointment-id="${appointmentId}" data-part-key="${part.key}" ${savedStatus === 'okay' ? 'checked' : ''} /><span class="label-text text-sm">OK</span></label>`;
+                        bodyHtml += `<label class="label cursor-pointer gap-2 py-0 min-h-0"><input type="radio" name="${fieldId}" value="issue" class="radio radio-sm radio-error check-part-radio" data-appointment-id="${appointmentId}" data-part-key="${part.key}" ${savedStatus === 'issue' ? 'checked' : ''} /><span class="label-text text-sm">Concern</span></label>`;
+                        bodyHtml += `</div>`;
+                        bodyHtml += `<div class="mt-2 concern-note-wrap ${showNote ? '' : 'hidden'}" data-appointment-id="${appointmentId}" data-part-key="${part.key}">`;
+                        bodyHtml += `<textarea id="concern_note_${appointmentId}_${part.key}" class="textarea textarea-bordered textarea-sm w-full" rows="2" placeholder="Concern notes...">${savedNote}</textarea>`;
+                        bodyHtml += `</div></div></div></div>`;
+                });
 
-        bodyHtml += `<tr class="hover:bg-base-200" data-appointment-id="${appointmentId}">`;
-
-        // Pet Name column
-        bodyHtml += `
-        <td>
-          <div class="flex items-center space-x-3">
-            <img src="${petAvatarUrl}" alt="Pet Image" class="mask mask-squircle bg-base-200 size-10" />
-            <span>${pet.pet_name || 'N/A'}</span>
-          </div>
-        </td>
-      `;
-
-        // Customer column
-        bodyHtml += `
-        <td>
-          <div class="flex items-center space-x-3">
-            <img src="${customerAvatarUrl}" alt="Customer Avatar" class="mask mask-squircle bg-base-200 size-10" />
-            <span>${pet.customer_name || 'N/A'}</span>
-          </div>
-        </td>
-      `;
-
-        // Body parts columns
-        bodyParts.forEach(part => {
-            const partKey = part.toLowerCase().replace(/\s+/g, '_');
-            const fieldId = `check_${appointmentId}_${partKey}`;
-            const savedPartData = savedPetData[partKey] || {};
-            const savedStatus = savedPartData.status || '';
-
-            bodyHtml += `
-          <td style="text-align: center;">
-            <div class="flex items-center justify-center gap-1">
-              <label class="label cursor-pointer gap-1 py-0 min-h-0">
-                <input type="radio" name="${fieldId}" value="okay" class="radio radio-xs radio-primary" ${savedStatus === 'okay' ? 'checked' : ''} />
-                <span class="label-text text-[10px]">Okay</span>
-              </label>
-              <label class="label cursor-pointer gap-1 py-0 min-h-0">
-                <input type="radio" name="${fieldId}" value="issue" class="radio radio-xs radio-error" ${savedStatus === 'issue' ? 'checked' : ''} />
-                <span class="label-text text-[10px]">Issue</span>
-              </label>
-            </div>
-          </td>
-        `;
+                bodyHtml += `</div></details>`;
         });
 
-                bodyHtml += `
-                    <td style="text-align: center;">
-                        <label class="label cursor-pointer justify-center gap-2">
-                            <input class="checkbox checkbox-sm flea-tick-checkbox" type="checkbox" data-appointment-id="${appointmentId}" ${fleaTickChecked ? 'checked' : ''} />
-                            <span class="label-text text-xs">Detected</span>
-                        </label>
-                    </td>
-                `;
+        $('#check_pet_accordion').html(bodyHtml || '<div class="text-center p-4 text-base-content/70">No pets in this step.</div>');
 
-        bodyHtml += '</tr>';
-    });
+        function refreshCheckPetStatusBadge(appointmentId) {
+            const hasIssuePart = allOkKeys.some(function(key) {
+                const fieldName = `check_${appointmentId}_${key}`;
+                return $(`input[name="${fieldName}"]:checked`).val() === 'issue';
+            });
+            const hasConcern = hasIssuePart;
+            const allOkay = allOkKeys.every(function(key) {
+                const fieldName = `check_${appointmentId}_${key}`;
+                return $(`input[name="${fieldName}"]:checked`).val() === 'okay';
+            });
+            const badgeState = hasConcern ? 'concern' : (allOkay ? 'health' : 'incomplete');
+            const $badge = $(`.check-pet-status-badge[data-appointment-id="${appointmentId}"]`);
 
-    $('#check_pet_tbody').html(bodyHtml);
+            if (!$badge.length && badgeState !== 'incomplete') {
+                const $summaryContent = $(`details[data-appointment-id="${appointmentId}"] summary .flex.items-center.gap-3`);
+                if ($summaryContent.length) {
+                    $summaryContent.append(`<span class="badge check-pet-status-badge ${badgeState === 'concern' ? 'badge-error badge-soft' : 'badge-success badge-soft'}" data-appointment-id="${appointmentId}">${badgeState === 'concern' ? 'Concern' : 'Health'}</span>`);
+                }
+                return;
+            }
+
+            if (badgeState === 'incomplete') {
+                $badge.remove();
+                return;
+            }
+
+            $badge
+                .removeClass('badge-error badge-success')
+                .addClass(hasConcern ? 'badge-error' : 'badge-success')
+                .text(hasConcern ? 'Concern' : 'Health');
+        }
+
+        $(document).off('change.checkPetAllOk').on('change.checkPetAllOk', '.check-pet-all-ok', function() {
+                const appointmentId = $(this).data('appointment-id');
+                const shouldMarkOk = $(this).is(':checked');
+
+                allOkKeys.forEach(function(key) {
+                        const fieldName = `check_${appointmentId}_${key}`;
+                        $(`input[name="${fieldName}"]`).prop('checked', false);
+                        if (shouldMarkOk) {
+                                $(`input[name="${fieldName}"][value="okay"]`).prop('checked', true);
+                        }
+                        const $noteWrap = $(`.concern-note-wrap[data-appointment-id="${appointmentId}"][data-part-key="${key}"]`);
+                        $noteWrap.addClass('hidden');
+                        $noteWrap.find('textarea').val('');
+                });
+                    refreshCheckPetStatusBadge(appointmentId);
+        });
+
+        $(document).off('change.checkPetRadio').on('change.checkPetRadio', '.check-part-radio', function() {
+                const appointmentId = $(this).data('appointment-id');
+                const partKey = $(this).data('part-key');
+                const selectedValue = $(this).val();
+                const $noteWrap = $(`.concern-note-wrap[data-appointment-id="${appointmentId}"][data-part-key="${partKey}"]`);
+
+                if (selectedValue === 'issue' && $(this).is(':checked')) {
+                        $noteWrap.removeClass('hidden');
+                } else {
+                        $noteWrap.addClass('hidden');
+                        $noteWrap.find('textarea').val('');
+                }
+
+                const allOkay = allOkKeys.every(function(key) {
+                        const fieldName = `check_${appointmentId}_${key}`;
+                        return $(`input[name="${fieldName}"]:checked`).val() === 'okay';
+                });
+                $(`.check-pet-all-ok[data-appointment-id="${appointmentId}"]`).prop('checked', allOkay);
+                refreshCheckPetStatusBadge(appointmentId);
+        });
+
+            $(document).off('change.checkPetFleaTick').on('change.checkPetFleaTick', '.flea-tick-checkbox', function() {
+                refreshCheckPetStatusBadge($(this).data('appointment-id'));
+            });
 }
 
 function renderTreatmentPlanForm() {
@@ -3132,18 +3165,26 @@ $('#save_pet_details_btn').on('click', function() {
             if (!pet) return;
 
             const bodyParts = [
-                'Nose', 'Ears', 'Eyes', 'Mouth', 'Body/Coat', 'Paws/Feet', 'Abdomen', 'Digestive',
-                'Diarrhea'
+                { key: 'nose' },
+                { key: 'eyes' },
+                { key: 'ears' },
+                { key: 'mouth' },
+                { key: 'body_coat' },
+                { key: 'paws_feet' },
+                { key: 'abdomen' },
+                { key: 'digestive' },
+                { key: 'diarrhea' }
             ];
 
             checkPetData[appointmentId] = {};
             bodyParts.forEach(part => {
-                const fieldName =
-                    `check_${appointmentId}_${part.toLowerCase().replace(/\s+/g, '_')}`;
+                const fieldName = `check_${appointmentId}_${part.key}`;
                 const selectedValue = $(`input[name="${fieldName}"]:checked`).val();
+                const noteValue = $(`#concern_note_${appointmentId}_${part.key}`).val() || '';
 
-                checkPetData[appointmentId][part.toLowerCase().replace(/\s+/g, '_')] = {
-                    status: selectedValue || ''
+                checkPetData[appointmentId][part.key] = {
+                    status: selectedValue || '',
+                    note: selectedValue === 'issue' ? noteValue : ''
                 };
             });
 

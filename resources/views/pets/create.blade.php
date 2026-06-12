@@ -114,6 +114,7 @@
                 <option value="" selected disabled hidden></option>
                 <option value="spayed">Spayed</option>
                 <option value="neutered">Neutered</option>
+                <option value="intact">Intact</option>
               </select>
             </div>
             <div class="space-y-2">

@@ -246,6 +246,7 @@
                 <option value="" {{ empty($pet->spay_neuter) ? 'selected' : '' }} disabled hidden>Select status</option>
                 <option value="spayed" {{ $pet->spay_neuter === 'spayed' ? 'selected' : '' }}>Spayed</option>
                 <option value="neutered" {{ $pet->spay_neuter === 'neutered' ? 'selected' : '' }}>Neutered</option>
+                <option value="intact" {{ $pet->spay_neuter === 'intact' ? 'selected' : '' }}>Intact</option>
               </select>
             </div>
             <div class="space-y-2">

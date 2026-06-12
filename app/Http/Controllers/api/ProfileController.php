@@ -253,6 +253,7 @@ class ProfileController extends Controller
             'size' => 'required|exists:weight_ranges,id',
             'veterinarian_name' => 'required|string',
             'veterinarian_phone' => 'required|string',
+            'spay_neuter' => 'nullable|in:spayed,neutered,intact',
             'pet_img' => 'image|mimes:jpeg,png,jpg,gif,svg,webp|max:2048',
         ]);
 
@@ -301,6 +302,7 @@ class ProfileController extends Controller
             'size' => 'required|exists:weight_ranges,id',
             'veterinarian_name' => 'required|string',
             'veterinarian_phone' => 'required|string',
+            'spay_neuter' => 'nullable|in:spayed,neutered,intact',
             'pet_img_action' => 'required|in:keep,change,delete',
             'pet_img' => 'image|mimes:jpeg,png,jpg,gif,svg,webp|max:2048',
         ]);

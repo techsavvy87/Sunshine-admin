@@ -208,6 +208,7 @@ class PetController extends Controller
             'veterinarian_phone' => 'required|string',
             'temp_file' => 'nullable|string',
             'vaccine_status' => 'required|in:missing,submitted,approved,declined,expired',
+            'spay_neuter' => 'nullable|in:spayed,neutered,intact',
             'rating' => 'nullable|in:green,yellow,red',
             'rating_notes' => 'nullable|string',
         ]);
@@ -360,6 +361,7 @@ class PetController extends Controller
             'temp_file' => 'nullable|string',
             'current_img' => 'nullable|string',
             'vaccine_status' => 'required|in:missing,submitted,approved,declined,expired',
+            'spay_neuter' => 'nullable|in:spayed,neutered,intact',
             'rating' => 'nullable|in:green,yellow,red',
             'rating_notes' => 'nullable|string',
         ]);
