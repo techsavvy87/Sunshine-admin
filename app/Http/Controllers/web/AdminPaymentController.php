@@ -129,6 +129,18 @@ class AdminPaymentController extends Controller
                     throw new \RuntimeException('Stripe is not configured for payouts.');
                 }
 
+                // For local development or testing with Stripe test keys, we simulate a payout record without making an actual API call to Stripe.
+                if (app()->environment('local') || str_starts_with(config('services.stripe.secret_key'), 'sk_test_')) {
+                    return Payout::create([
+                        'amount' => $requestedAmount,
+                        'currency' => 'usd',
+                        'stripe_payout_id' => 'po_test_' . uniqid(),
+                        'status' => 'paid',
+                        'arrival_date' => now()->addDays(2),
+                        'created_by' => auth()->id(),
+                    ]);
+                }
+
                 Stripe::setApiKey(config('services.stripe.secret_key'));
                 $this->assertPayoutAccountReady('usd');
 

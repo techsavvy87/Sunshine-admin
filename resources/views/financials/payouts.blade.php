@@ -107,14 +107,26 @@
               <td class="text-sm font-medium">${{ number_format($payout->amount, 2) }}</td>
               <td class="text-sm">
                 @php
-                  $payoutStatusClasses = match($payout->status) {
-                    'paid' => 'badge-soft badge-success',
-                    'pending', 'in_transit' => 'badge-soft badge-warning',
-                    'failed', 'canceled' => 'badge-soft badge-error',
-                    default => 'badge-soft badge-info',
-                  };
+                    $payoutStatusClasses = match($payout->status) {
+                        'paid' => 'badge-soft badge-success',
+                        'pending', 'in_transit' => 'badge-soft badge-warning',
+                        'failed', 'canceled' => 'badge-soft badge-error',
+                        default => 'badge-soft badge-info',
+                    };
+
+                    $payoutStatusLabel = match($payout->status) {
+                        'paid' => 'Completed',
+                        'pending' => 'Pending',
+                        'in_transit' => 'Processing',
+                        'failed' => 'Failed',
+                        'canceled' => 'Canceled',
+                        default => ucfirst(str_replace('_', ' ', $payout->status)),
+                    };
                 @endphp
-                <span class="badge badge-sm {{ $payoutStatusClasses }}">{{ ucfirst(str_replace('_', ' ', $payout->status)) }}</span>
+
+                <span class="badge badge-sm {{ $payoutStatusClasses }}">
+                    {{ $payoutStatusLabel }}
+                </span>
               </td>
               <td class="text-sm"><span class="font-mono text-xs">{{ $payout->stripe_payout_id }}</span></td>
               <td class="text-sm whitespace-nowrap">{{ $payout->created_at?->format('m/d/Y h:i A') ?? '-' }}</td>
