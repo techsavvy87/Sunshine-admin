@@ -4147,7 +4147,6 @@ class AppointmentController extends Controller
         ];
 
         $paymentLink = null;
-        $externalPaymentUrl = null;
         if ($request->status === 'sent') {
             // compute subtotal and tax so payment link includes tax
             $subtotal = $invoiceItemSummary['total_service_price'] - $resolvedDiscountAmount + $invoiceItemSummary['total_inventory_amount'];
@@ -4169,13 +4168,6 @@ class AppointmentController extends Controller
             } else {
                 $paymentLink = createPaymentLink($invoice, $appointment, $totalAmount);
             }
-            // Try to create a Stripe Checkout Session and provide that URL in the invoice email
-            try {
-                $externalPaymentUrl = createInvoiceCheckoutSession($invoice, $totalAmount);
-            } catch (\Exception $e) {
-                // fallback to internal payment page
-                $externalPaymentUrl = null;
-            }
         }
 
         if ($request->status === 'paid' && $request->payment_amount && $request->payment_method) {
@@ -4193,12 +4185,7 @@ class AppointmentController extends Controller
         $emailFailed = false;
         if ($request->status === 'sent' || ($request->status === 'paid' && $request->payment_amount)) {
             try {
-                // If an external Stripe Checkout URL was created, pass that along for the email
-                if ($externalPaymentUrl) {
-                    $this->sendInvoiceEmail($invoice, $appointment, $items, $discountInfo, $externalPaymentUrl);
-                } else {
-                    $this->sendInvoiceEmail($invoice, $appointment, $items, $discountInfo, $paymentLink);
-                }
+                $this->sendInvoiceEmail($invoice, $appointment, $items, $discountInfo, $paymentLink);
             } catch (\Throwable $e) {
                 $emailFailed = true;
                 Log::error('Failed to send invoice email after saving invoice.', [

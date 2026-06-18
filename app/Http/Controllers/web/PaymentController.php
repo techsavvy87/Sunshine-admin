@@ -26,6 +26,8 @@ class PaymentController extends Controller
             return view('payment.error', ['message' => 'Payment link is invalid, expired, or has already been completed.']);
         }
 
+        $paymentLink->loadMissing('invoice.items', 'appointment.service', 'appointment.customer', 'appointment.pet');
+
         $invoice = $paymentLink->invoice;
         $appointment = $paymentLink->appointment;
 
