@@ -4185,7 +4185,7 @@ class AppointmentController extends Controller
         $emailFailed = false;
         if ($request->status === 'sent' || ($request->status === 'paid' && $request->payment_amount)) {
             try {
-                $this->sendInvoiceEmail($invoice, $appointment, $items, $discountInfo, $paymentLink);
+                // $this->sendInvoiceEmail($invoice, $appointment, $items, $discountInfo, $paymentLink);
             } catch (\Throwable $e) {
                 $emailFailed = true;
                 Log::error('Failed to send invoice email after saving invoice.', [
@@ -4282,7 +4282,7 @@ class AppointmentController extends Controller
         ];
 
         try {
-            Mail::to($invoice->email)->send(new InvoiceMail($emailData));
+            // Mail::to($invoice->email)->send(new InvoiceMail($emailData));
             Log::info('Invoice email sent', ['invoice_id' => $invoice->id, 'to' => $invoice->email]);
         } catch (\Exception $e) {
             Log::error('Failed to send invoice email', ['invoice_id' => $invoice->id, 'to' => $invoice->email, 'error' => $e->getMessage()]);
