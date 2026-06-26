@@ -1,4 +1,4 @@
-# Sunshine Pet Management System (Admin Portal)
+# Pet Management System (Admin Portal)
 
 A comprehensive pet care management platform built with **Laravel** for boarding facilities, daycare centers, grooming salons, and veterinary businesses. The system streamlines daily operations from appointment booking to payments and facility management.
 
