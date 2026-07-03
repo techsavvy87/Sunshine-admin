@@ -47,6 +47,15 @@ Route::controller(PaymentController::class)->group(function () {
     Route::post('/payment/confirm', 'confirmPayment')->name('payment.confirm');
 });
 
+Route::controller(CustomerController::class)->group(function () {
+    Route::get('/customer-invite/{token}', 'showInviteRegistrationForm')->name('customer-invite.form');
+    Route::post('/customer-invite/{token}', 'submitInviteRegistration')->name('customer-invite.submit');
+    Route::post('/customer-invite/customer-file/process', 'processInviteCustomerFileUpload')->name('process-file-customer-invite');
+    Route::delete('/customer-invite/customer-file/revert', 'revertInviteCustomerFileUpload')->name('revert-file-customer-invite');
+    Route::post('/customer-invite/pet-file/process', 'processInvitePetFileUpload')->name('process-file-pet-invite');
+    Route::delete('/customer-invite/pet-file/revert', 'revertInvitePetFileUpload')->name('revert-file-pet-invite');
+});
+
 Route::post('/webhook/stripe', [StripeWebhookController::class, 'handle'])->name('stripe.webhook')->withoutMiddleware(['csrf']);
 
 Route::controller(AuthController::class)->group(function () {
@@ -177,6 +186,7 @@ Route::middleware(['auth'])->group(function () {
         Route::get('/customers', 'listCustomers')->name('customers')->middleware('ensure.permission:1,can_read');
         Route::get('/customer/add', 'addCustomer')->name('add-customer')->middleware('ensure.permission:1,can_create');
         Route::post('/customer/create', 'createCustomer')->name('create-customer')->middleware('ensure.permission:1,can_create');
+        Route::post('/customer/invite', 'sendInvite')->name('send-customer-invite')->middleware('ensure.permission:1,can_create');
         Route::get('/customer/edit/{id}', 'editCustomer')->name('edit-customer')->middleware('ensure.permission:1,can_update');
         Route::get('/customer/{id}/invoices', 'customerInvoices')->name('customer-invoices')->middleware('ensure.permission:1,can_read');
         Route::post('/customer/update', 'updateCustomer')->name('update-customer')->middleware('ensure.permission:1,can_update');

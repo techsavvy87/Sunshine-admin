@@ -5,16 +5,351 @@ namespace App\Http\Controllers\web;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Carbon\Carbon;
 use Exception;
 use App\Models\User;
 use App\Models\AdditionalOwner;
 use App\Models\Profile;
+use App\Models\PetProfile;
+use App\Models\PetVaccination;
+use App\Models\PetCertificate;
+use App\Models\Breed;
+use App\Models\Color;
+use App\Models\CoatType;
+use App\Models\WeightRange;
 use App\Models\Role;
+use App\Models\CustomerInvite;
+use App\Mail\AdminCustomerMessage;
 
 class CustomerController extends Controller
 {
+    public function sendInvite(Request $request)
+    {
+        $request->validate([
+            'email' => 'required|email',
+        ]);
+
+        $email = strtolower(trim((string) $request->email));
+
+        $existingCustomer = User::where('email', $email)
+            ->whereHas('roles', function ($query) {
+                $query->where('title', 'customer');
+            })
+            ->first();
+
+        if ($existingCustomer) {
+            return back()->with([
+                'status' => 'fail',
+                'message' => 'A customer account with this email already exists.',
+            ]);
+        }
+
+        CustomerInvite::where('email', $email)
+            ->whereNull('used_at')
+            ->where(function ($query) {
+                $query->whereNull('expires_at')
+                    ->orWhere('expires_at', '>', Carbon::now());
+            })
+            ->update(['expires_at' => Carbon::now()]);
+
+        $rawToken = Str::random(64);
+        $tokenHash = hash('sha256', $rawToken);
+
+        $invite = CustomerInvite::create([
+            'invited_by' => auth()->id(),
+            'email' => $email,
+            'token_hash' => $tokenHash,
+            'expires_at' => Carbon::now()->addDays(7),
+        ]);
+
+        $inviteLink = route('customer-invite.form', ['token' => $rawToken]);
+
+        $message = "You have been invited to complete your customer registration at Sunshine Spot.\n\n";
+        $message .= "Please use the secure invitation link below:\n{$inviteLink}\n\n";
+        $message .= "This link will expire on " . Carbon::parse($invite->expires_at)->format('F j, Y g:i A') . ".";
+
+        try {
+            Mail::to($email)->send(new AdminCustomerMessage([
+                'subject' => 'Customer Registration Invitation',
+                'customer_name' => 'Customer',
+                'message' => $message,
+                'cta_url' => $inviteLink,
+                'cta_label' => 'Complete Registration',
+                'sender_name' => 'Sunshine Spot Team',
+            ]));
+        } catch (\Throwable $exception) {
+            return back()->with([
+                'status' => 'fail',
+                'message' => 'Invite could not be sent. Please verify mail settings and try again.',
+            ]);
+        }
+
+        return back()->with([
+            'status' => 'success',
+            'message' => 'Invitation email sent successfully.',
+        ]);
+    }
+
+    public function showInviteRegistrationForm(string $token)
+    {
+        $invite = $this->resolveInviteByToken($token);
+        if (!$invite) {
+            return view('customer-invites.invalid');
+        }
+
+        if ($invite->used_at || ($invite->expires_at && Carbon::parse($invite->expires_at)->isPast())) {
+            return view('customer-invites.expired');
+        }
+
+        $weightRanges = WeightRange::all();
+        $breeds = Breed::orderBy('name')->get();
+        $colors = Color::orderBy('name')->get();
+        $coatTypes = CoatType::orderBy('name')->get();
+        $states = config('us_states', []);
+        $vaccinationTypeOptions = [
+            'Leptospirosis',
+            'Rabies',
+            'FVRCP',
+            'Bordetella',
+            'DHPP',
+            'Annual Exam',
+            'Annual Heartworm',
+            'C5 Canine Vaccine',
+            'Canine Coronavirus (CCoV)',
+            'Canine Distemper',
+            'Canine Hepatitis',
+            'Canine Influenza',
+            'Canine Parvovirus',
+            'Crotalid',
+            'Fecal Test',
+            'Flea Prevention Medication',
+            'Lyme',
+            'Monthly Parasite Prevention',
+        ];
+
+        $breedOptions = $breeds->map(function ($item) {
+            return [
+                'id' => $item->id,
+                'name' => $item->name,
+            ];
+        })->values()->all();
+
+        $colorOptions = $colors->map(function ($item) {
+            return [
+                'id' => $item->id,
+                'name' => $item->name,
+            ];
+        })->values()->all();
+
+        $coatTypeOptions = $coatTypes->map(function ($item) {
+            return [
+                'id' => $item->id,
+                'name' => $item->name,
+            ];
+        })->values()->all();
+
+        $weightRangeOptions = $weightRanges->map(function ($item) {
+            return [
+                'id' => $item->id,
+                'name' => $item->name,
+                'min_weight' => $item->min_weight,
+                'max_weight' => $item->max_weight,
+            ];
+        })->values()->all();
+
+        return view('customer-invites.form', compact('invite', 'weightRanges', 'breeds', 'colors', 'coatTypes', 'states', 'token', 'breedOptions', 'colorOptions', 'coatTypeOptions', 'weightRangeOptions', 'vaccinationTypeOptions'));
+    }
+
+    public function submitInviteRegistration(Request $request, string $token)
+    {
+        $invite = $this->resolveInviteByToken($token);
+        if (!$invite || $invite->used_at || ($invite->expires_at && Carbon::parse($invite->expires_at)->isPast())) {
+            return redirect()->route('customer-invite.form', ['token' => $token])->with([
+                'status' => 'fail',
+                'message' => 'This invite is invalid or expired.',
+            ]);
+        }
+
+        $request->merge([
+            'email' => $invite->email,
+        ]);
+
+        $request->validate([
+            'username' => 'required|string|max:255|unique:users,name',
+            'password' => 'required|string|min:8|confirmed',
+            'temp_file_customer' => 'nullable|string',
+            'first_name' => 'required|string|max:255',
+            'last_name' => 'required|string|max:255',
+            'phone_number_1' => 'required|string|max:255',
+            'phone_number_2' => 'nullable|string|max:255',
+            'home_number' => 'nullable|string|max:255',
+            'work_number' => 'nullable|string|max:255',
+            'street_address' => 'nullable|string|max:255',
+            'city' => 'nullable|string|max:255',
+            'state' => 'nullable|string|max:255',
+            'zip_code' => 'nullable|string|max:255',
+            'emergency_contact_info' => 'nullable|string|max:255',
+            'owners' => 'nullable|string',
+            'pets' => 'required|array|min:1',
+            'pets.*.pet_name' => 'required|string|max:255',
+            'pets.*.sex' => 'required|in:male,female',
+            'pets.*.type' => 'required|in:Dog,Cat',
+            'pets.*.spay_neuter' => 'nullable|in:spayed,neutered,intact',
+            'pets.*.birth_date' => 'nullable|date',
+            'pets.*.age' => 'nullable|integer|min:0|max:50',
+            'pets.*.breed' => 'required|exists:breeds,id',
+            'pets.*.size' => 'required|exists:weight_ranges,id',
+            'pets.*.weight' => 'required|numeric|min:0',
+            'pets.*.color' => 'required|exists:colors,id',
+            'pets.*.coat_type' => 'required|exists:coat_types,id',
+            'pets.*.notes' => 'nullable|string',
+            'pets.*.temp_file_pet' => 'nullable|string',
+            'pets.*.veterinarian_name' => 'required|string|max:255',
+            'pets.*.veterinarian_phone' => 'required|string|max:255',
+            'pets.*.vaccinations' => 'nullable|array',
+            'pets.*.vaccinations.*.type' => 'nullable|string|max:255',
+            'pets.*.vaccinations.*.date' => 'nullable|date',
+            'pets.*.vaccinations.*.months' => 'nullable|integer|min:1|max:120',
+            'pets.*.certificate_files' => 'nullable|array',
+            'pets.*.certificate_files.*' => 'nullable|file|max:10240',
+        ]);
+
+        DB::transaction(function () use ($request, $invite) {
+            $user = new User();
+            $user->name = $request->username;
+            $user->email = $invite->email;
+            $user->password = bcrypt($request->password);
+            $user->email_verified_at = Carbon::now();
+            $user->status = true;
+            $user->block_reservations = false;
+            $user->block_messages = false;
+            $user->save();
+
+            $profile = new Profile();
+            $profile->user_id = $user->id;
+            $profile->first_name = $request->first_name;
+            $profile->last_name = $request->last_name;
+            $profile->phone_number_1 = $request->phone_number_1;
+            $profile->phone_number_2 = $request->phone_number_2;
+            $profile->address = $request->street_address;
+            $profile->city = $request->city;
+            $profile->state = $request->state;
+            $profile->zip_code = $request->zip_code;
+            $profile->emergency_contact_info = $request->emergency_contact_info;
+            $profile->home_number = $request->home_number;
+            $profile->work_number = $request->work_number;
+
+            if ($request->filled('temp_file_customer')) {
+                $profile->avatar_img = $this->moveTempFileToPublic($request->temp_file_customer, 'profiles');
+            }
+
+            $profile->save();
+
+            $customerRole = Role::where('title', 'customer')->first();
+            if ($customerRole) {
+                $user->roles()->attach($customerRole);
+            }
+
+            $owners = json_decode((string) $request->owners);
+            if (is_array($owners)) {
+                foreach ($owners as $owner) {
+                    if (!empty($owner->name) && !empty($owner->phone)) {
+                        $additionalOwner = new AdditionalOwner();
+                        $additionalOwner->user_id = $user->id;
+                        $additionalOwner->full_name = $owner->name;
+                        $additionalOwner->phone_number = $owner->phone;
+                        $additionalOwner->save();
+                    }
+                }
+            }
+
+            foreach ($request->pets as $petData) {
+                $pet = new PetProfile();
+                $pet->user_id = $user->id;
+                $pet->name = $petData['pet_name'];
+                $pet->sex = $petData['sex'];
+                $pet->type = $petData['type'];
+                $pet->spay_neuter = $petData['spay_neuter'] ?? null;
+                $pet->birthdate = !empty($petData['birth_date']) ? Carbon::parse($petData['birth_date']) : null;
+                $pet->age = !empty($petData['age']) ? $petData['age'] : null;
+                $pet->breed_id = $petData['breed'];
+                $pet->size = $this->getPetSizeByWeightRangeId($petData['size']);
+                $pet->weight = $petData['weight'];
+                $pet->color_id = $petData['color'];
+                $pet->coat_type_id = $petData['coat_type'];
+                $pet->notes = $petData['notes'] ?? null;
+                $pet->veterinarian_name = $petData['veterinarian_name'];
+                $pet->veterinarian_phone = $petData['veterinarian_phone'];
+                $pet->vaccine_status = 'submitted';
+                $pet->rating = null;
+                $pet->rating_notes = null;
+
+                if (!empty($petData['temp_file_pet'])) {
+                    $pet->pet_img = $this->moveTempFileToPublic($petData['temp_file_pet'], 'pets');
+                }
+
+                $pet->save();
+
+                $vaccinations = $petData['vaccinations'] ?? [];
+                foreach ($vaccinations as $vaccination) {
+                    $type = trim((string) ($vaccination['type'] ?? ''));
+                    $date = trim((string) ($vaccination['date'] ?? ''));
+                    $months = trim((string) ($vaccination['months'] ?? ''));
+                    $hasAnyValue = $type !== '' || $date !== '' || $months !== '';
+
+                    if (!$hasAnyValue) {
+                        continue;
+                    }
+
+                    if ($type === '' || $date === '' || $months === '') {
+                        throw ValidationException::withMessages([
+                            'pets' => 'Please complete vaccination name, date, and months for each entered vaccination row.',
+                        ]);
+                    }
+
+                    $petVaccination = new PetVaccination();
+                    $petVaccination->pet_profile_id = $pet->id;
+                    $petVaccination->type = strtolower($type);
+                    $petVaccination->date = $date;
+                    $petVaccination->months = (int) $months;
+                    $petVaccination->save();
+                }
+
+                $certificateFiles = $petData['certificate_files'] ?? null;
+                if (is_array($certificateFiles)) {
+                    foreach ($certificateFiles as $file) {
+                        if (!$file) {
+                            continue;
+                        }
+
+                        $path = $file->store('public/pets');
+                        $paths = explode('/', $path);
+
+                        $certificate = new PetCertificate();
+                        $certificate->pet_profile_id = $pet->id;
+                        $certificate->file_path = end($paths);
+                        $certificate->file_name = $file->getClientOriginalName();
+                        $certificate->file_type = $file->getClientMimeType();
+                        $certificate->file_size = $file->getSize();
+                        $certificate->save();
+                    }
+                }
+            }
+
+            $invite->used_at = Carbon::now();
+            $invite->used_by_user_id = $user->id;
+            $invite->save();
+        });
+
+        return view('customer-invites.success', [
+            'email' => $invite->email,
+        ]);
+    }
+
     public function listCustomers(Request $request)
     {
         $perPage = $request->get('per_page', 20);
@@ -379,4 +714,101 @@ class CustomerController extends Controller
             'message' => 'Customer deleted successfully!'
         ]);
     }
+
+    private function resolveInviteByToken(string $token): ?CustomerInvite
+    {
+        $tokenHash = hash('sha256', $token);
+        return CustomerInvite::where('token_hash', $tokenHash)->first();
+    }
+
+    private function getPetSizeByWeightRangeId($weightRangeId): string
+    {
+        $weightRange = WeightRange::find($weightRangeId);
+        if (!$weightRange) {
+            return 'medium';
+        }
+
+        $clean = preg_replace('/[^A-Za-z0-9 ]/', '', $weightRange->name);
+        $clean = strtolower((string) $clean);
+
+        return trim($clean);
+    }
+
+    public function processInviteCustomerFileUpload(Request $request)
+    {
+        return $this->processTempImageUpload($request, 'avatar_img');
+    }
+
+    public function revertInviteCustomerFileUpload(Request $request)
+    {
+        return $this->revertTempImageUpload($request);
+    }
+
+    public function processInvitePetFileUpload(Request $request)
+    {
+        return $this->processTempImageUpload($request, 'pet_img');
+    }
+
+    public function revertInvitePetFileUpload(Request $request)
+    {
+        return $this->revertTempImageUpload($request);
+    }
+
+    private function processTempImageUpload(Request $request, string $field)
+    {
+        try {
+            $request->validate([
+                $field => 'required|image|mimes:jpeg,png,jpg,gif|max:2048',
+            ]);
+
+            $file = $request->file($field);
+            $fileName = Str::random(40) . '.' . $file->getClientOriginalExtension();
+            $file->storeAs('temp', $fileName, 'local');
+
+            return response()->json([
+                'temp_file' => $fileName,
+                'original_name' => $file->getClientOriginalName(),
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'error' => 'File upload failed: ' . $e->getMessage(),
+            ], 422);
+        }
+    }
+
+    private function revertTempImageUpload(Request $request)
+    {
+        try {
+            $tempFile = $request->getContent();
+
+            if ($tempFile && Storage::disk('local')->exists('temp/' . $tempFile)) {
+                Storage::disk('local')->delete('temp/' . $tempFile);
+            }
+
+            return response()->json(['message' => 'File reverted successfully.']);
+        } catch (\Exception $e) {
+            return response()->json([
+                'error' => 'File deletion failed: ' . $e->getMessage(),
+            ], 422);
+        }
+    }
+
+    private function moveTempFileToPublic(string $tempFile, string $targetDir): ?string
+    {
+        $tempPath = 'temp/' . $tempFile;
+        if (!Storage::disk('local')->exists($tempPath)) {
+            return null;
+        }
+
+        $fileContents = Storage::disk('local')->get($tempPath);
+        if ($fileContents === null) {
+            return null;
+        }
+
+        Storage::disk('public')->put($targetDir . '/' . $tempFile, $fileContents);
+        Storage::disk('local')->delete($tempPath);
+
+        return $tempFile;
+    }
+
 }

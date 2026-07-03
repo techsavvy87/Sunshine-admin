@@ -96,6 +96,22 @@
         margin: 20px 0;
         border-radius: 4px;
       }
+      .cta-wrapper {
+        margin: 22px 0;
+      }
+      .cta-button {
+        display: inline-block;
+        background: #2563eb;
+        color: #ffffff !important;
+        text-decoration: none;
+        padding: 12px 18px;
+        border-radius: 6px;
+        font-weight: 600;
+      }
+      .direct-link {
+        word-break: break-all;
+        font-size: 14px;
+      }
     </style>
   </head>
   <body>
@@ -103,6 +119,15 @@
       <h2>Sunshine Spot</h2>
       <p>Dear {{ $messageData['customer_name'] ?? 'Customer' }},</p>
       <p>{!! nl2br(e($messageData['message'] ?? '')) !!}</p>
+      @if(!empty($messageData['cta_url']))
+      <div class="cta-wrapper">
+        <a class="cta-button" href="{{ $messageData['cta_url'] }}" target="_blank" rel="noopener noreferrer">{{ $messageData['cta_label'] ?? 'Open Link' }}</a>
+      </div>
+      <p class="direct-link">
+        If the button does not work, open this link directly:
+        <a href="{{ $messageData['cta_url'] }}" target="_blank" rel="noopener noreferrer">{{ $messageData['cta_url'] }}</a>
+      </p>
+      @endif
       <div class="footer">
         Best regards,<br>
         <strong>{{ $messageData['sender_name'] ?? 'Sunshine Spot Team' }}</strong>
