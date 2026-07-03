@@ -245,7 +245,7 @@
           <div class="card-title">Pet Information</div>
           <button class="btn btn-primary btn-soft btn-sm" type="button" onclick="addPet()">
             <span class="iconify lucide--plus size-3.5"></span>
-            + Add Pet
+            Add Pet
           </button>
         </div>
         <div class="mt-3 space-y-4" id="pets_container"></div>

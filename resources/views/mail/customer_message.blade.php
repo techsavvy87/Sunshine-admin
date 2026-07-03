@@ -123,10 +123,6 @@
       <div class="cta-wrapper">
         <a class="cta-button" href="{{ $messageData['cta_url'] }}" target="_blank" rel="noopener noreferrer">{{ $messageData['cta_label'] ?? 'Open Link' }}</a>
       </div>
-      <p class="direct-link">
-        If the button does not work, open this link directly:
-        <a href="{{ $messageData['cta_url'] }}" target="_blank" rel="noopener noreferrer">{{ $messageData['cta_url'] }}</a>
-      </p>
       @endif
       <div class="footer">
         Best regards,<br>
