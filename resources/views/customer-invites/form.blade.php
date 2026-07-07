@@ -77,7 +77,7 @@
 
 @section('content')
 <div class="w-full max-w-none px-3">
-  <h3 class="mt-6 text-xl font-semibold">Complete Your Registration</h3>
+  <h3 class="mt-6 text-xl font-semibold">{{ $invitedCustomer ? 'Review and Update Your Information' : 'Complete Your Registration' }}</h3>
   <p class="text-base-content/70 mt-2 text-sm">Please complete your customer and pet information.</p>
 
   <div class="mt-4">
@@ -109,7 +109,7 @@
                 <label class="fieldset-label" for="username">Username*</label>
                 <label class="input w-full focus:outline-0">
                   <span class="iconify lucide--user text-base-content/60 size-4"></span>
-                  <input class="grow focus:outline-0" placeholder="User Name" id="username" name="username" type="text" value="{{ old('username') }}" required />
+                  <input class="grow focus:outline-0" placeholder="User Name" id="username" name="username" type="text" value="{{ old('username', $prefillCustomer['username'] ?? '') }}" required />
                 </label>
               </div>
 
@@ -125,7 +125,7 @@
                 <label class="fieldset-label" for="password">Password*</label>
                 <label class="input w-full focus:outline-0">
                   <span class="iconify lucide--key-round text-base-content/60 size-4"></span>
-                  <input class="grow focus:outline-0" placeholder="Password" id="password" name="password" type="password" autocomplete="new-password" required />
+                  <input class="grow focus:outline-0" placeholder="{{ $invitedCustomer ? 'Leave blank to keep current password' : 'Password' }}" id="password" name="password" type="password" autocomplete="new-password" {{ $invitedCustomer ? '' : 'required' }} />
                   <label class="swap btn btn-xs btn-ghost btn-circle text-base-content/60">
                     <input type="checkbox" aria-label="Show password" data-password="password" />
                     <span class="iconify lucide--eye swap-off size-4"></span>
@@ -138,7 +138,7 @@
                 <label class="fieldset-label" for="password_confirmation">Confirm Password*</label>
                 <label class="input w-full focus:outline-0">
                   <span class="iconify lucide--key-round text-base-content/60 size-4"></span>
-                  <input class="grow focus:outline-0" id="password_confirmation" name="password_confirmation" placeholder="Confirm Password" type="password" autocomplete="new-password" required />
+                  <input class="grow focus:outline-0" id="password_confirmation" name="password_confirmation" placeholder="{{ $invitedCustomer ? 'Confirm new password (if changing)' : 'Confirm Password' }}" type="password" autocomplete="new-password" {{ $invitedCustomer ? '' : 'required' }} />
                   <label class="swap btn btn-xs btn-ghost btn-circle text-base-content/60">
                     <input type="checkbox" aria-label="Show password" data-password="password_confirmation" />
                     <span class="iconify lucide--eye swap-off size-4"></span>
@@ -176,27 +176,27 @@
             <div class="fieldset mt-2 grid grid-cols-1 gap-4 lg:grid-cols-2">
               <div class="space-y-2">
                 <label class="fieldset-label" for="first_name">First Name*</label>
-                <input class="input w-full" placeholder="First Name" name="first_name" type="text" id="first_name" value="{{ old('first_name') }}" required />
+                <input class="input w-full" placeholder="First Name" name="first_name" type="text" id="first_name" value="{{ old('first_name', $prefillCustomer['first_name'] ?? '') }}" required />
               </div>
               <div class="space-y-2">
                 <label class="fieldset-label" for="last_name">Last Name*</label>
-                <input class="input w-full" placeholder="Last Name" name="last_name" type="text" id="last_name" value="{{ old('last_name') }}" required />
+                <input class="input w-full" placeholder="Last Name" name="last_name" type="text" id="last_name" value="{{ old('last_name', $prefillCustomer['last_name'] ?? '') }}" required />
               </div>
               <div class="space-y-2">
                 <label class="fieldset-label" for="phone_number_1">Phone Number*</label>
-                <input class="input w-full" placeholder="(098) 765-4321" type="tel" name="phone_number_1" id="phone_number_1" value="{{ old('phone_number_1') }}" oninput="formatPhoneNumber(this)" required />
+                <input class="input w-full" placeholder="(098) 765-4321" type="tel" name="phone_number_1" id="phone_number_1" value="{{ old('phone_number_1', $prefillCustomer['phone_number_1'] ?? '') }}" oninput="formatPhoneNumber(this)" required />
               </div>
               <div class="space-y-2">
                 <label class="fieldset-label" for="phone_number_2">Phone Number2</label>
-                <input class="input w-full" placeholder="(098) 765-4321" type="tel" name="phone_number_2" id="phone_number_2" value="{{ old('phone_number_2') }}" oninput="formatPhoneNumber(this)" />
+                <input class="input w-full" placeholder="(098) 765-4321" type="tel" name="phone_number_2" id="phone_number_2" value="{{ old('phone_number_2', $prefillCustomer['phone_number_2'] ?? '') }}" oninput="formatPhoneNumber(this)" />
               </div>
               <div class="space-y-2">
                 <label class="fieldset-label" for="home_number">Home Number</label>
-                <input class="input w-full" placeholder="(098) 765-4321" type="tel" name="home_number" id="home_number" value="{{ old('home_number') }}" oninput="formatPhoneNumber(this)" />
+                <input class="input w-full" placeholder="(098) 765-4321" type="tel" name="home_number" id="home_number" value="{{ old('home_number', $prefillCustomer['home_number'] ?? '') }}" oninput="formatPhoneNumber(this)" />
               </div>
               <div class="space-y-2">
                 <label class="fieldset-label" for="work_number">Work Number</label>
-                <input class="input w-full" placeholder="(098) 765-4321" type="tel" name="work_number" id="work_number" value="{{ old('work_number') }}" oninput="formatPhoneNumber(this)" />
+                <input class="input w-full" placeholder="(098) 765-4321" type="tel" name="work_number" id="work_number" value="{{ old('work_number', $prefillCustomer['work_number'] ?? '') }}" oninput="formatPhoneNumber(this)" />
               </div>
             </div>
           </div>
@@ -210,28 +210,28 @@
             <div class="fieldset mt-2 grid grid-cols-1 gap-4 lg:grid-cols-2">
               <div class="space-y-2">
                 <label class="fieldset-label" for="street_address">Street</label>
-                <input class="input w-full" id="street_address" placeholder="Street" type="text" name="street_address" value="{{ old('street_address') }}" />
+                <input class="input w-full" id="street_address" placeholder="Street" type="text" name="street_address" value="{{ old('street_address', $prefillCustomer['street_address'] ?? '') }}" />
               </div>
               <div class="space-y-2">
                 <label class="fieldset-label" for="city">City</label>
-                <input class="input w-full" id="city" placeholder="City" type="text" name="city" value="{{ old('city') }}" />
+                <input class="input w-full" id="city" placeholder="City" type="text" name="city" value="{{ old('city', $prefillCustomer['city'] ?? '') }}" />
               </div>
               <div class="space-y-2">
                 <label class="fieldset-label" for="state">State</label>
                 <select class="select w-full" name="state" id="state">
                   <option value="">Select a state</option>
                   @foreach($states as $code => $name)
-                    <option value="{{ $code }}" {{ old('state') === $code ? 'selected' : '' }}>{{ $name }}</option>
+                    <option value="{{ $code }}" {{ old('state', $prefillCustomer['state'] ?? '') === $code ? 'selected' : '' }}>{{ $name }}</option>
                   @endforeach
                 </select>
               </div>
               <div class="space-y-2">
                 <label class="fieldset-label" for="zip_code">Zip Code</label>
-                <input class="input w-full" id="zip_code" placeholder="564-879" type="text" name="zip_code" value="{{ old('zip_code') }}" />
+                <input class="input w-full" id="zip_code" placeholder="564-879" type="text" name="zip_code" value="{{ old('zip_code', $prefillCustomer['zip_code'] ?? '') }}" />
               </div>
               <div class="lg:col-span-2 space-y-2">
                 <label class="fieldset-label" for="emergency_contact_info">Emergency Contact Info</label>
-                <textarea class="textarea w-full" placeholder="Emergency Contact Info" name="emergency_contact_info" id="emergency_contact_info">{{ old('emergency_contact_info') }}</textarea>
+                <textarea class="textarea w-full" placeholder="Emergency Contact Info" name="emergency_contact_info" id="emergency_contact_info">{{ old('emergency_contact_info', $prefillCustomer['emergency_contact_info'] ?? '') }}</textarea>
               </div>
             </div>
           </div>
@@ -272,6 +272,10 @@
   const weightRanges = @json($weightRangeOptions);
   const vaccinationTypeOptions = @json($vaccinationTypeOptions);
   const oldPets = @json(old('pets', []));
+  const oldOwners = @json(json_decode((string) old('owners', '[]'), true) ?: []);
+  const prefillCustomer = @json($prefillCustomer ?? []);
+  const prefillPets = @json($prefillPets ?? []);
+  const prefillOwners = @json($prefillOwners ?? []);
   const csrfToken = '{{ csrf_token() }}';
 
   let ownerIdx = 0;
@@ -324,9 +328,9 @@
   }
 
   function vaccinationOptionsHtml(selectedValue = '') {
-    const normalized = String(selectedValue || '');
+    const normalized = String(selectedValue || '').toLowerCase();
     return vaccinationTypeOptions.map((option) => {
-      const selected = normalized === String(option) ? 'selected' : '';
+      const selected = normalized === String(option).toLowerCase() ? 'selected' : '';
       return `<option value="${option}" ${selected}>${option}</option>`;
     }).join('');
   }
@@ -376,12 +380,52 @@
     `;
   }
 
+  function escapeHtml(value) {
+    return String(value || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
+  function renderExistingCertificateRows(certificates = []) {
+    if (!Array.isArray(certificates) || certificates.length === 0) {
+      return '';
+    }
+
+    return certificates.map((certificate) => {
+      const fileName = escapeHtml(certificate.file_name || 'certificate');
+      const filePath = encodeURIComponent(certificate.file_path || '');
+      const fileType = String(certificate.file_type || '').toLowerCase();
+      const fileUrl = `{{ asset('storage/pets') }}/${filePath}`;
+      const canPreview = fileType === 'application/pdf' || fileType.startsWith('image/');
+
+      return `
+        <div class="flex items-center gap-1 text-sm" id="existing_certificate_${certificate.id}">
+          <span class="iconify lucide--file size-3.5"></span>
+          <span class="font-medium">${fileName}</span>
+          <button type="button" class="btn btn-ghost btn-sm p-1" aria-label="remove" onclick="removeExistingCertificate(${certificate.id}, ${certificate.pet_index || 0})">
+            <span class="iconify lucide--x size-3 text-error"></span>
+          </button>
+          <a href="${fileUrl}" class="btn btn-ghost btn-sm ml-auto p-1" download>
+            <span class="iconify lucide--download size-3 text-primary"></span>
+          </a>
+          ${canPreview ? `<a href="${fileUrl}" class="btn btn-ghost btn-sm p-1" target="_blank" rel="noopener"><span class="iconify lucide--eye size-3 text-info"></span></a>` : ''}
+        </div>
+      `;
+    }).join('');
+  }
+
   function petTemplate(index, pet = {}) {
+    const parsedPetId = Number(pet.pet_id);
+    const isExistingPet = Number.isInteger(parsedPetId) && parsedPetId > 0;
     return `
       <div class="pet-form space-y-5" id="pet_form_${index}" data-pet-index="${index}">
+        <input type="hidden" name="pets[${index}][pet_id]" value="${pet.pet_id || ''}" />
         <div class="flex items-center justify-between rounded-box border border-base-300 bg-base-100 px-4 py-3">
-          <div class="font-medium">Pet ${index + 1}</div>
-          <button class="btn btn-ghost btn-sm" type="button" onclick="removePet(${index})">Remove</button>
+          <div class="font-medium">Pet ${index + 1}${isExistingPet ? ' (Existing)' : ''}</div>
+          ${isExistingPet ? '' : `<button class="btn btn-ghost btn-sm" type="button" onclick="removePet(${index})">Remove</button>`}
         </div>
 
         <div class="invite-pet-top-grid">
@@ -528,6 +572,13 @@
                 <div class="card-body">
                   <div class="card-title">Health Certificate</div>
                   <input aria-label="File" class="file-input w-full" type="file" name="pets[${index}][certificate_files][]" multiple />
+                  <input type="hidden" name="pets[${index}][delete_existing_certificate_ids]" id="delete_existing_certificates_${index}" value="" />
+                  <div class="mt-2 space-y-1" id="existing_certificates_${index}">
+                    ${renderExistingCertificateRows((pet.existing_certificates || []).map((certificate) => ({
+                      ...certificate,
+                      pet_index: index,
+                    })))}
+                  </div>
                 </div>
               </div>
 
@@ -556,7 +607,27 @@
   function addPet(prefill = {}, forcedIndex = null) {
     const nextIndex = Number.isInteger(forcedIndex) ? forcedIndex : getNextPetIndex();
     $('#pets_container').append(petTemplate(nextIndex, prefill));
-    initializePetFilePond(nextIndex);
+    initializePetFilePond(nextIndex, prefill);
+  }
+
+  function removeExistingCertificate(certificateId, petIndex = 0) {
+    if (!certificateId) {
+      return;
+    }
+
+    $(`#existing_certificate_${certificateId}`).remove();
+
+    const parsedPetIndex = Number(petIndex || 0);
+    const hiddenInput = $(`#delete_existing_certificates_${parsedPetIndex}`);
+    if (!hiddenInput.length) {
+      return;
+    }
+
+    const current = (hiddenInput.val() || '').split(',').map((value) => value.trim()).filter(Boolean);
+    if (!current.includes(String(certificateId))) {
+      current.push(String(certificateId));
+      hiddenInput.val(current.join(','));
+    }
   }
 
   function removePet(index) {
@@ -598,6 +669,15 @@
       return;
     }
 
+    const initialFiles = prefillCustomer && prefillCustomer.avatar_img
+      ? [{
+          source: prefillCustomer.avatar_img,
+          options: {
+            type: 'local'
+          }
+        }]
+      : [];
+
     FilePond.create(inputElement, {
       acceptedFileTypes: ['image/*'],
       allowImagePreview: true,
@@ -613,6 +693,7 @@
       styleProgressIndicatorPosition: 'right bottom',
       styleButtonRemoveItemPosition: 'left bottom',
       styleButtonProcessItemPosition: 'right bottom',
+      files: initialFiles,
       server: {
         process: {
           url: '{{ route("process-file-customer-invite") }}',
@@ -625,6 +706,23 @@
             $('#temp_file_customer').val(result.temp_file);
             return result.temp_file;
           }
+        },
+        load: (source, load, error) => {
+          const imageUrl = '{{ asset("storage/profiles") }}/' + source;
+
+          fetch(imageUrl)
+            .then((response) => {
+              if (!response.ok) {
+                throw new Error('Failed to load image');
+              }
+              return response.blob();
+            })
+            .then((blob) => {
+              load(blob);
+            })
+            .catch(() => {
+              error('Could not load existing avatar');
+            });
         },
         revert: {
           url: '{{ route("revert-file-customer-invite") }}',
@@ -640,11 +738,20 @@
     });
   }
 
-  function initializePetFilePond(petIndex) {
+  function initializePetFilePond(petIndex, petPrefill = {}) {
     const inputElement = document.querySelector(`#pet_form_${petIndex} input[type="file"][data-filepond-pet]`);
     if (!inputElement) {
       return;
     }
+
+    const initialFiles = petPrefill && petPrefill.pet_img
+      ? [{
+          source: petPrefill.pet_img,
+          options: {
+            type: 'local'
+          }
+        }]
+      : [];
 
     FilePond.create(inputElement, {
       acceptedFileTypes: ['image/*'],
@@ -661,6 +768,7 @@
       styleProgressIndicatorPosition: 'right bottom',
       styleButtonRemoveItemPosition: 'left bottom',
       styleButtonProcessItemPosition: 'right bottom',
+      files: initialFiles,
       server: {
         process: {
           url: '{{ route("process-file-pet-invite") }}',
@@ -673,6 +781,23 @@
             $(`#temp_file_pet_${petIndex}`).val(result.temp_file);
             return result.temp_file;
           }
+        },
+        load: (source, load, error) => {
+          const imageUrl = '{{ asset("storage/pets") }}/' + source;
+
+          fetch(imageUrl)
+            .then((response) => {
+              if (!response.ok) {
+                throw new Error('Failed to load image');
+              }
+              return response.blob();
+            })
+            .then((blob) => {
+              load(blob);
+            })
+            .catch(() => {
+              error('Could not load existing pet image');
+            });
         },
         revert: {
           url: '{{ route("revert-file-pet-invite") }}',
@@ -764,8 +889,16 @@
     FilePond.registerPlugin(FilePondPluginImagePreview);
     initializeCustomerFilePond();
 
+    if (Array.isArray(oldOwners) && oldOwners.length > 0) {
+      oldOwners.forEach((owner) => addAdditionalOwner(owner));
+    } else if (Array.isArray(prefillOwners) && prefillOwners.length > 0) {
+      prefillOwners.forEach((owner) => addAdditionalOwner(owner));
+    }
+
     if (Array.isArray(oldPets) && oldPets.length > 0) {
       oldPets.forEach((pet, idx) => addPet(pet, idx));
+    } else if (Array.isArray(prefillPets) && prefillPets.length > 0) {
+      prefillPets.forEach((pet, idx) => addPet(pet, idx));
     } else {
       addPet();
     }

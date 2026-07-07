@@ -35,17 +35,22 @@ class CustomerController extends Controller
 
         $email = strtolower(trim((string) $request->email));
 
-        $existingCustomer = User::where('email', $email)
-            ->whereHas('roles', function ($query) {
-                $query->where('title', 'customer');
-            })
-            ->first();
+        $existingUser = User::where('email', $email)->first();
+        $existingCustomer = null;
 
-        if ($existingCustomer) {
-            return back()->with([
-                'status' => 'fail',
-                'message' => 'A customer account with this email already exists.',
-            ]);
+        if ($existingUser) {
+            $existingCustomer = User::where('id', $existingUser->id)
+                ->whereHas('roles', function ($query) {
+                    $query->where('title', 'customer');
+                })
+                ->first();
+
+            if (!$existingCustomer) {
+                return back()->with([
+                    'status' => 'fail',
+                    'message' => 'This email is already used by a non-customer account.',
+                ]);
+            }
         }
 
         CustomerInvite::where('email', $email)
@@ -68,17 +73,17 @@ class CustomerController extends Controller
 
         $inviteLink = route('customer-invite.form', ['token' => $rawToken]);
 
-        $message = "You have been invited to complete your customer registration at Sunshine Spot.\n\n";
+        $message = "You have been invited to complete your customer registration/update at Sunshine Spot.\n\n";
         $message .= "Please use the secure invitation link below:\n{$inviteLink}\n\n";
         $message .= "This link will expire on " . Carbon::parse($invite->expires_at)->format('F j, Y g:i A') . ".";
 
         try {
             Mail::to($email)->send(new AdminCustomerMessage([
-                'subject' => 'Customer Registration Invitation',
+                'subject' => 'Customer Invitation',
                 'customer_name' => 'Customer',
                 'message' => $message,
                 'cta_url' => $inviteLink,
-                'cta_label' => 'Complete Registration',
+                'cta_label' => 'Open Invitation',
                 'sender_name' => 'Sunshine Spot Team',
             ]));
         } catch (\Throwable $exception) {
@@ -161,7 +166,84 @@ class CustomerController extends Controller
             ];
         })->values()->all();
 
-        return view('customer-invites.form', compact('invite', 'weightRanges', 'breeds', 'colors', 'coatTypes', 'states', 'token', 'breedOptions', 'colorOptions', 'coatTypeOptions', 'weightRangeOptions', 'vaccinationTypeOptions'));
+        $invitedCustomer = User::with([
+            'profile',
+            'additionalOwners',
+            'pets.vaccinations',
+            'pets.certificates',
+        ])
+            ->where('email', $invite->email)
+            ->whereHas('roles', function ($query) {
+                $query->where('title', 'customer');
+            })
+            ->first();
+
+        $prefillCustomer = [];
+        $prefillOwners = [];
+        $prefillPets = [];
+
+        if ($invitedCustomer) {
+            $prefillCustomer = [
+                'username' => $invitedCustomer->name,
+                'avatar_img' => optional($invitedCustomer->profile)->avatar_img,
+                'first_name' => optional($invitedCustomer->profile)->first_name,
+                'last_name' => optional($invitedCustomer->profile)->last_name,
+                'phone_number_1' => optional($invitedCustomer->profile)->phone_number_1,
+                'phone_number_2' => optional($invitedCustomer->profile)->phone_number_2,
+                'home_number' => optional($invitedCustomer->profile)->home_number,
+                'work_number' => optional($invitedCustomer->profile)->work_number,
+                'street_address' => optional($invitedCustomer->profile)->address,
+                'city' => optional($invitedCustomer->profile)->city,
+                'state' => optional($invitedCustomer->profile)->state,
+                'zip_code' => optional($invitedCustomer->profile)->zip_code,
+                'emergency_contact_info' => optional($invitedCustomer->profile)->emergency_contact_info,
+            ];
+
+            $prefillOwners = $invitedCustomer->additionalOwners->map(function ($owner) {
+                return [
+                    'name' => $owner->full_name,
+                    'phone' => $owner->phone_number,
+                ];
+            })->values()->all();
+
+            $prefillPets = $invitedCustomer->pets->map(function ($pet) use ($weightRanges) {
+                return [
+                    'pet_id' => $pet->id,
+                    'pet_img' => $pet->pet_img,
+                    'pet_name' => $pet->name,
+                    'sex' => $pet->sex,
+                    'type' => $pet->type,
+                    'spay_neuter' => $pet->spay_neuter,
+                    'birth_date' => $pet->birthdate ? Carbon::parse($pet->birthdate)->format('Y-m-d') : null,
+                    'age' => $pet->age,
+                    'breed' => $pet->breed_id,
+                    'size' => $this->getWeightRangeIdByPetSize($pet->size, $weightRanges),
+                    'weight' => $pet->weight,
+                    'color' => $pet->color_id,
+                    'coat_type' => $pet->coat_type_id,
+                    'notes' => $pet->notes,
+                    'veterinarian_name' => $pet->veterinarian_name,
+                    'veterinarian_phone' => $pet->veterinarian_phone,
+                    'existing_certificates' => $pet->certificates->map(function ($certificate) {
+                        return [
+                            'id' => $certificate->id,
+                            'file_name' => $certificate->file_name,
+                            'file_path' => $certificate->file_path,
+                            'file_type' => $certificate->file_type,
+                        ];
+                    })->values()->all(),
+                    'vaccinations' => $pet->vaccinations->map(function ($vaccination) {
+                        return [
+                            'type' => $vaccination->type,
+                            'date' => $vaccination->date ? Carbon::parse($vaccination->date)->format('Y-m-d') : null,
+                            'months' => $vaccination->months,
+                        ];
+                    })->values()->all(),
+                ];
+            })->values()->all();
+        }
+
+        return view('customer-invites.form', compact('invite', 'weightRanges', 'breeds', 'colors', 'coatTypes', 'states', 'token', 'breedOptions', 'colorOptions', 'coatTypeOptions', 'weightRangeOptions', 'vaccinationTypeOptions', 'prefillCustomer', 'prefillOwners', 'prefillPets', 'invitedCustomer'));
     }
 
     public function submitInviteRegistration(Request $request, string $token)
@@ -178,9 +260,21 @@ class CustomerController extends Controller
             'email' => $invite->email,
         ]);
 
+        $invitedCustomer = User::with(['profile', 'additionalOwners', 'pets'])
+            ->where('email', $invite->email)
+            ->whereHas('roles', function ($query) {
+                $query->where('title', 'customer');
+            })
+            ->first();
+
+        $usernameRule = 'required|string|max:255|unique:users,name';
+        if ($invitedCustomer) {
+            $usernameRule = 'required|string|max:255|unique:users,name,' . $invitedCustomer->id;
+        }
+
         $request->validate([
-            'username' => 'required|string|max:255|unique:users,name',
-            'password' => 'required|string|min:8|confirmed',
+            'username' => $usernameRule,
+            'password' => ($invitedCustomer ? 'nullable' : 'required') . '|string|min:8|confirmed',
             'temp_file_customer' => 'nullable|string',
             'first_name' => 'required|string|max:255',
             'last_name' => 'required|string|max:255',
@@ -195,6 +289,7 @@ class CustomerController extends Controller
             'emergency_contact_info' => 'nullable|string|max:255',
             'owners' => 'nullable|string',
             'pets' => 'required|array|min:1',
+            'pets.*.pet_id' => 'nullable|integer|exists:pet_profiles,id',
             'pets.*.pet_name' => 'required|string|max:255',
             'pets.*.sex' => 'required|in:male,female',
             'pets.*.type' => 'required|in:Dog,Cat',
@@ -214,22 +309,31 @@ class CustomerController extends Controller
             'pets.*.vaccinations.*.type' => 'nullable|string|max:255',
             'pets.*.vaccinations.*.date' => 'nullable|date',
             'pets.*.vaccinations.*.months' => 'nullable|integer|min:1|max:120',
+            'pets.*.delete_existing_certificate_ids' => 'nullable|string',
             'pets.*.certificate_files' => 'nullable|array',
             'pets.*.certificate_files.*' => 'nullable|file|max:10240',
         ]);
 
-        DB::transaction(function () use ($request, $invite) {
-            $user = new User();
+        DB::transaction(function () use ($request, $invite, $invitedCustomer) {
+            if ($invitedCustomer) {
+                $user = $invitedCustomer;
+            } else {
+                $user = new User();
+                $user->email = $invite->email;
+                $user->password = bcrypt($request->password);
+                $user->email_verified_at = Carbon::now();
+                $user->status = true;
+                $user->block_reservations = false;
+                $user->block_messages = false;
+            }
+
             $user->name = $request->username;
-            $user->email = $invite->email;
-            $user->password = bcrypt($request->password);
-            $user->email_verified_at = Carbon::now();
-            $user->status = true;
-            $user->block_reservations = false;
-            $user->block_messages = false;
+            if ($invitedCustomer && $request->filled('password')) {
+                $user->password = bcrypt($request->password);
+            }
             $user->save();
 
-            $profile = new Profile();
+            $profile = $user->profile ?: new Profile();
             $profile->user_id = $user->id;
             $profile->first_name = $request->first_name;
             $profile->last_name = $request->last_name;
@@ -250,11 +354,12 @@ class CustomerController extends Controller
             $profile->save();
 
             $customerRole = Role::where('title', 'customer')->first();
-            if ($customerRole) {
+            if ($customerRole && !$user->roles()->where('roles.id', $customerRole->id)->exists()) {
                 $user->roles()->attach($customerRole);
             }
 
             $owners = json_decode((string) $request->owners);
+            AdditionalOwner::where('user_id', $user->id)->delete();
             if (is_array($owners)) {
                 foreach ($owners as $owner) {
                     if (!empty($owner->name) && !empty($owner->phone)) {
@@ -267,9 +372,24 @@ class CustomerController extends Controller
                 }
             }
 
+            $existingPetIds = $user->pets()->pluck('id')->all();
+
             foreach ($request->pets as $petData) {
-                $pet = new PetProfile();
-                $pet->user_id = $user->id;
+                $petId = isset($petData['pet_id']) ? (int) $petData['pet_id'] : null;
+                $pet = null;
+
+                if ($petId && in_array($petId, $existingPetIds, true)) {
+                    $pet = PetProfile::find($petId);
+                }
+
+                if (!$pet) {
+                    $pet = new PetProfile();
+                    $pet->user_id = $user->id;
+                    $pet->vaccine_status = 'submitted';
+                    $pet->rating = null;
+                    $pet->rating_notes = null;
+                }
+
                 $pet->name = $petData['pet_name'];
                 $pet->sex = $petData['sex'];
                 $pet->type = $petData['type'];
@@ -284,15 +404,44 @@ class CustomerController extends Controller
                 $pet->notes = $petData['notes'] ?? null;
                 $pet->veterinarian_name = $petData['veterinarian_name'];
                 $pet->veterinarian_phone = $petData['veterinarian_phone'];
-                $pet->vaccine_status = 'submitted';
-                $pet->rating = null;
-                $pet->rating_notes = null;
 
                 if (!empty($petData['temp_file_pet'])) {
                     $pet->pet_img = $this->moveTempFileToPublic($petData['temp_file_pet'], 'pets');
                 }
 
                 $pet->save();
+
+                PetVaccination::where('pet_profile_id', $pet->id)->delete();
+
+                $deleteExistingCertificateIdsRaw = trim((string) ($petData['delete_existing_certificate_ids'] ?? ''));
+                if ($deleteExistingCertificateIdsRaw !== '') {
+                    $deleteExistingCertificateIds = collect(explode(',', $deleteExistingCertificateIdsRaw))
+                        ->map(function ($id) {
+                            return (int) trim((string) $id);
+                        })
+                        ->filter(function ($id) {
+                            return $id > 0;
+                        })
+                        ->unique()
+                        ->values();
+
+                    if ($deleteExistingCertificateIds->isNotEmpty()) {
+                        $certificatesToDelete = PetCertificate::where('pet_profile_id', $pet->id)
+                            ->whereIn('id', $deleteExistingCertificateIds->all())
+                            ->get();
+
+                        foreach ($certificatesToDelete as $certificate) {
+                            $filePath = 'pets/' . $certificate->file_path;
+                            if (!empty($certificate->file_path) && Storage::disk('public')->exists($filePath)) {
+                                Storage::disk('public')->delete($filePath);
+                            }
+                        }
+
+                        PetCertificate::where('pet_profile_id', $pet->id)
+                            ->whereIn('id', $deleteExistingCertificateIds->all())
+                            ->delete();
+                    }
+                }
 
                 $vaccinations = $petData['vaccinations'] ?? [];
                 foreach ($vaccinations as $vaccination) {
@@ -732,6 +881,23 @@ class CustomerController extends Controller
         $clean = strtolower((string) $clean);
 
         return trim($clean);
+    }
+
+    private function getWeightRangeIdByPetSize(?string $petSize, $weightRanges): ?int
+    {
+        if (!$petSize) {
+            return null;
+        }
+
+        $normalizedPetSize = trim(strtolower((string) preg_replace('/[^A-Za-z0-9 ]/', '', $petSize)));
+        foreach ($weightRanges as $weightRange) {
+            $normalizedName = trim(strtolower((string) preg_replace('/[^A-Za-z0-9 ]/', '', $weightRange->name)));
+            if ($normalizedName === $normalizedPetSize) {
+                return (int) $weightRange->id;
+            }
+        }
+
+        return null;
     }
 
     public function processInviteCustomerFileUpload(Request $request)

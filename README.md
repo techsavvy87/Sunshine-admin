@@ -23,20 +23,6 @@ A comprehensive pet care management platform built with **Laravel** for boarding
 * Stripe API
 * REST API
 
-## Screenshots
-
-### Dashboard
-
-<p align="center">
-<img src="./screenshots/dashboard.png" width="900">
-</p>
-
-### Pet Management
-
-<p align="center">
-<img src="./screenshots/pets.png" width="900">
-</p>
-
 ## Installation
 
 ```bash

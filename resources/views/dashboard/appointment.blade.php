@@ -532,7 +532,7 @@
                     <a href="{{ route('edit-customer', $appointment->customer->id) }}" class="link link-hover" title="View customer">{{ $appointment->customer->profile->first_name }} {{ $appointment->customer->profile->last_name }}</a>
                   </p>
                   @else
-                  <p class="font-medium">G��</p>
+                  <p class="font-medium">—</p>
                   @endif
                   <p class="text-sm text-base-content/70">
                     <span class="iconify lucide--mail text-base-content/70 size-3"></span>
@@ -2246,7 +2246,7 @@
                       <div class="flex items-center gap-2 mb-2 space-y-1 ms-1">
                         <label class="flex items-center gap-2">
                           <input type="checkbox" class="checkbox checkbox-xs" id="boarding_rest_required" name="rest_required" value="1" {{ $restRequired ? 'checked' : '' }} />
-                          <span class="text-sm">Rest Required (Senior Pet G�� 16 years old)</span>
+                          <span class="text-sm">Rest Required (Senior Pet — 16 years old)</span>
                         </label>
                       </div>
                       <div class="ms-1">
@@ -2795,11 +2795,11 @@
                             <tr><th class="text-start w-auto">Task</th><th class="text-center w-24">Time</th><th class="text-center w-28">Employee</th><th class="text-start w-56 min-w-48">Details</th></tr>
                           </thead>
                           <tbody>
-                            <tr data-step-id="food_prep_am"><td class="text-sm">Food Prep (AM)</td><td class="text-sm text-center w-24" data-display="time">G��</td><td class="text-sm text-center w-28" data-display="employee"></td><td class="text-sm w-56 min-w-48" data-display="detail"></td></tr>
-                            <tr data-step-id="meds_prep_am"><td class="text-sm">Meds Prep (AM)</td><td class="text-sm text-center w-24" data-display="time">G��</td><td class="text-sm text-center w-28" data-display="employee"></td><td class="text-sm w-56 min-w-48" data-display="detail"></td></tr>
-                            <tr data-step-id="feeding_am"><td class="text-sm">Feeding Dispense (AM)</td><td class="text-sm text-center w-24" data-display="time">G��</td><td class="text-sm text-center w-28" data-display="employee"></td><td class="text-sm w-56 min-w-48" data-display="detail"></td></tr>
-                            <tr data-step-id="meds_dispense_am"><td class="text-sm">Meds Dispense (AM)</td><td class="text-sm text-center w-24" data-display="time">G��</td><td class="text-sm text-center w-28" data-display="employee"></td><td class="text-sm w-56 min-w-48" data-display="detail"></td></tr>
-                            <tr data-step-id="reports_am"><td class="text-sm">Reports (AM)</td><td class="text-sm text-center w-24" data-display="time">G��</td><td class="text-sm text-center w-28" data-display="employee"></td><td class="text-sm w-56 min-w-48" data-display="detail"></td></tr>
+                            <tr data-step-id="food_prep_am"><td class="text-sm">Food Prep (AM)</td><td class="text-sm text-center w-24" data-display="time">—</td><td class="text-sm text-center w-28" data-display="employee"></td><td class="text-sm w-56 min-w-48" data-display="detail"></td></tr>
+                            <tr data-step-id="meds_prep_am"><td class="text-sm">Meds Prep (AM)</td><td class="text-sm text-center w-24" data-display="time">—</td><td class="text-sm text-center w-28" data-display="employee"></td><td class="text-sm w-56 min-w-48" data-display="detail"></td></tr>
+                            <tr data-step-id="feeding_am"><td class="text-sm">Feeding Dispense (AM)</td><td class="text-sm text-center w-24" data-display="time">—</td><td class="text-sm text-center w-28" data-display="employee"></td><td class="text-sm w-56 min-w-48" data-display="detail"></td></tr>
+                            <tr data-step-id="meds_dispense_am"><td class="text-sm">Meds Dispense (AM)</td><td class="text-sm text-center w-24" data-display="time">—</td><td class="text-sm text-center w-28" data-display="employee"></td><td class="text-sm w-56 min-w-48" data-display="detail"></td></tr>
+                            <tr data-step-id="reports_am"><td class="text-sm">Reports (AM)</td><td class="text-sm text-center w-24" data-display="time">—</td><td class="text-sm text-center w-28" data-display="employee"></td><td class="text-sm w-56 min-w-48" data-display="detail"></td></tr>
                           </tbody>
                         </table>
                       </div>
@@ -2810,8 +2810,8 @@
                             <tr><th class="text-start w-auto">Task</th><th class="text-center w-24">Time</th><th class="text-center w-28">Employee</th><th class="text-start w-56 min-w-48">Details</th></tr>
                           </thead>
                           <tbody>
-                            <tr data-step-id="check_pet"><td class="text-sm">Check Pet</td><td class="text-sm text-center w-24" data-display="time">G��</td><td class="text-sm text-center w-28" data-display="employee"></td><td class="text-sm w-56 min-w-48" data-display="detail"></td></tr>
-                            <tr data-step-id="treatment_plan"><td class="text-sm">Treatment Plan</td><td class="text-sm text-center w-24" data-display="time">G��</td><td class="text-sm text-center w-28" data-display="employee"></td><td class="text-sm w-56 min-w-48" data-display="detail"></td></tr>
+                            <tr data-step-id="check_pet"><td class="text-sm">Check Pet</td><td class="text-sm text-center w-24" data-display="time">—</td><td class="text-sm text-center w-28" data-display="employee"></td><td class="text-sm w-56 min-w-48" data-display="detail"></td></tr>
+                            <tr data-step-id="treatment_plan"><td class="text-sm">Treatment Plan</td><td class="text-sm text-center w-24" data-display="time">—</td><td class="text-sm text-center w-28" data-display="employee"></td><td class="text-sm w-56 min-w-48" data-display="detail"></td></tr>
                           </tbody>
                         </table>
                       </div>
@@ -2822,10 +2822,10 @@
                             <tr><th class="text-start w-auto">Task</th><th class="text-center w-24">Time</th><th class="text-center w-28">Employee</th><th class="text-start w-56 min-w-48">Details</th></tr>
                           </thead>
                           <tbody>
-                            <tr data-step-id="treatments_tlr"><td class="text-sm">Treatments</td><td class="text-sm text-center w-24" data-display="time">G��</td><td class="text-sm text-center w-28" data-display="employee"></td><td class="text-sm w-56 min-w-48" data-display="detail"></td></tr>
-                            <tr data-step-id="next_day_treatment_list_tlr"><td class="text-sm">Next Day's Treatment</td><td class="text-sm text-center w-24" data-display="time">G��</td><td class="text-sm text-center w-28" data-display="employee"></td><td class="text-sm w-56 min-w-48" data-display="detail"></td></tr>
-                            <tr data-step-id="lunch_tlr"><td class="text-sm">Lunch</td><td class="text-sm text-center w-24" data-display="time">G��</td><td class="text-sm text-center w-28" data-display="employee"></td><td class="text-sm w-56 min-w-48" data-display="detail"></td></tr>
-                            <tr data-step-id="rest_tlr"><td class="text-sm">Rest</td><td class="text-sm text-center w-24" data-display="time">G��</td><td class="text-sm text-center w-28" data-display="employee"></td><td class="text-sm w-56 min-w-48" data-display="detail"></td></tr>
+                            <tr data-step-id="treatments_tlr"><td class="text-sm">Treatments</td><td class="text-sm text-center w-24" data-display="time">—</td><td class="text-sm text-center w-28" data-display="employee"></td><td class="text-sm w-56 min-w-48" data-display="detail"></td></tr>
+                            <tr data-step-id="next_day_treatment_list_tlr"><td class="text-sm">Next Day's Treatment</td><td class="text-sm text-center w-24" data-display="time">—</td><td class="text-sm text-center w-28" data-display="employee"></td><td class="text-sm w-56 min-w-48" data-display="detail"></td></tr>
+                            <tr data-step-id="lunch_tlr"><td class="text-sm">Lunch</td><td class="text-sm text-center w-24" data-display="time">—</td><td class="text-sm text-center w-28" data-display="employee"></td><td class="text-sm w-56 min-w-48" data-display="detail"></td></tr>
+                            <tr data-step-id="rest_tlr"><td class="text-sm">Rest</td><td class="text-sm text-center w-24" data-display="time">—</td><td class="text-sm text-center w-28" data-display="employee"></td><td class="text-sm w-56 min-w-48" data-display="detail"></td></tr>
                           </tbody>
                         </table>
                       </div>
@@ -2836,11 +2836,11 @@
                             <tr><th class="text-start w-auto">Task</th><th class="text-center w-24">Time</th><th class="text-center w-28">Employee</th><th class="text-start w-56 min-w-48">Details</th></tr>
                           </thead>
                           <tbody>
-                            <tr data-step-id="food_prep_pm"><td class="text-sm">Food Prep (PM)</td><td class="text-sm text-center w-24" data-display="time">G��</td><td class="text-sm text-center w-28" data-display="employee"></td><td class="text-sm w-56 min-w-48" data-display="detail"></td></tr>
-                            <tr data-step-id="meds_prep_pm"><td class="text-sm">Meds Prep (PM)</td><td class="text-sm text-center w-24" data-display="time">G��</td><td class="text-sm text-center w-28" data-display="employee"></td><td class="text-sm w-56 min-w-48" data-display="detail"></td></tr>
-                            <tr data-step-id="feeding_pm"><td class="text-sm">Feeding Dispense (PM)</td><td class="text-sm text-center w-24" data-display="time">G��</td><td class="text-sm text-center w-28" data-display="employee"></td><td class="text-sm w-56 min-w-48" data-display="detail"></td></tr>
-                            <tr data-step-id="meds_dispense_pm"><td class="text-sm">Meds Dispense (PM)</td><td class="text-sm text-center w-24" data-display="time">G��</td><td class="text-sm text-center w-28" data-display="employee"></td><td class="text-sm w-56 min-w-48" data-display="detail"></td></tr>
-                            <tr data-step-id="reports_pm"><td class="text-sm">Reports (PM)</td><td class="text-sm text-center w-24" data-display="time">G��</td><td class="text-sm text-center w-28" data-display="employee"></td><td class="text-sm w-56 min-w-48" data-display="detail"></td></tr>
+                            <tr data-step-id="food_prep_pm"><td class="text-sm">Food Prep (PM)</td><td class="text-sm text-center w-24" data-display="time">—</td><td class="text-sm text-center w-28" data-display="employee"></td><td class="text-sm w-56 min-w-48" data-display="detail"></td></tr>
+                            <tr data-step-id="meds_prep_pm"><td class="text-sm">Meds Prep (PM)</td><td class="text-sm text-center w-24" data-display="time">—</td><td class="text-sm text-center w-28" data-display="employee"></td><td class="text-sm w-56 min-w-48" data-display="detail"></td></tr>
+                            <tr data-step-id="feeding_pm"><td class="text-sm">Feeding Dispense (PM)</td><td class="text-sm text-center w-24" data-display="time">—</td><td class="text-sm text-center w-28" data-display="employee"></td><td class="text-sm w-56 min-w-48" data-display="detail"></td></tr>
+                            <tr data-step-id="meds_dispense_pm"><td class="text-sm">Meds Dispense (PM)</td><td class="text-sm text-center w-24" data-display="time">—</td><td class="text-sm text-center w-28" data-display="employee"></td><td class="text-sm w-56 min-w-48" data-display="detail"></td></tr>
+                            <tr data-step-id="reports_pm"><td class="text-sm">Reports (PM)</td><td class="text-sm text-center w-24" data-display="time">—</td><td class="text-sm text-center w-28" data-display="employee"></td><td class="text-sm w-56 min-w-48" data-display="detail"></td></tr>
                           </tbody>
                         </table>
                       </div>
@@ -3113,12 +3113,12 @@
                       <div tabindex="0" class="dropdown-content z-[1] menu p-4 shadow bg-base-100 rounded-box w-80 border border-base-300" style="left: -10px">
                         <div class="space-y-2 text-xs">
                           <p class="font-semibold text-sm mb-2">5 Star Rating System:</p>
-                          <p><span class="font-medium">0 star</span> G�� pet does not recognize command</p>
-                          <p><span class="font-medium">1 star</span> G�� pet has infrequent response to command in a quiet environment</p>
-                          <p><span class="font-medium">2 stars</span> G�� pet has intermittent response to command but highly distracted</p>
-                          <p><span class="font-medium">3 stars</span> G�� pet has regular response to command but effected by distractions</p>
-                          <p><span class="font-medium">4 stars</span> G�� pet has reliable response to command but has some challenges when distracted</p>
-                          <p><span class="font-medium">5 stars</span> G�� pet has dependable response to command regardless of environment</p>
+                          <p><span class="font-medium">0 star</span> — pet does not recognize command</p>
+                          <p><span class="font-medium">1 star</span> — pet has infrequent response to command in a quiet environment</p>
+                          <p><span class="font-medium">2 stars</span> — pet has intermittent response to command but highly distracted</p>
+                          <p><span class="font-medium">3 stars</span> — pet has regular response to command but effected by distractions</p>
+                          <p><span class="font-medium">4 stars</span> — pet has reliable response to command but has some challenges when distracted</p>
+                          <p><span class="font-medium">5 stars</span> — pet has dependable response to command regardless of environment</p>
                         </div>
                       </div>
                     </div>
@@ -5276,7 +5276,7 @@
   function loadBoardingWorkflowData(date) {
     if (!date) {
       $('#boarding_workflow_steps_container [data-step-id]').each(function() {
-        $(this).find('[data-display="time"]').text('G��');
+        $(this).find('[data-display="time"]').text('—');
         $(this).find('[data-display="employee"]').text('');
         $(this).find('[data-display="detail"]').text('');
       });
@@ -5365,7 +5365,7 @@
 
         function getStepDetailForAppointment(stepId, stepData) {
           if (!stepData || !aidStr) return '';
-          // Reports (AM/PM): single key G�� show value only (no "Issue:" label)
+          // Reports (AM/PM): single key — show value only (no "Issue:" label)
           const issuesVal = stepData.issues && (stepData.issues[aidStr] != null ? stepData.issues[aidStr] : stepData.issues[currentAppointmentId]);
           if ((stepId === 'reports_am' || stepId === 'reports_pm') && issuesVal !== undefined && issuesVal !== null && String(issuesVal).trim() !== '') {
             return String(issuesVal).trim();
@@ -5446,16 +5446,16 @@
           const stepAvailable = isNewFlowFormat && stepData && typeof stepData === 'object';
           const involved = isPetInvolvedInStep(stepData);
           const restDetail = stepId === 'rest_tlr' ? getStepDetailForAppointment(stepId, stepData) : '';
-          let timeStr = 'G��';
+          let timeStr = '—';
           let employeeStr = '';
           let detailStr = '';
           if (stepAvailable) {
             const t = stepData.process_time || stepData.processTime;
-            timeStr = (stepId === 'rest_tlr' && !involved) ? 'G��' : (t ? formatTimeDisplay(t) : 'G��');
+            timeStr = (stepId === 'rest_tlr' && !involved) ? '—' : (t ? formatTimeDisplay(t) : '—');
             employeeStr = (stepId === 'rest_tlr' && !involved) ? '' : getEmployeeDisplay(stepData);
             detailStr = stepId === 'rest_tlr' ? (involved ? restDetail : '') : (involved ? getStepDetailForAppointment(stepId, stepData) : '');
           } else if (legacyTimeKeys[stepId] && workflowData[legacyTimeKeys[stepId]]) {
-            timeStr = (stepId === 'rest_tlr' && !involved) ? 'G��' : formatTimeDisplay(workflowData[legacyTimeKeys[stepId]]);
+            timeStr = (stepId === 'rest_tlr' && !involved) ? '—' : formatTimeDisplay(workflowData[legacyTimeKeys[stepId]]);
             employeeStr = (stepId === 'rest_tlr' && !involved) ? '' : (response.staff_name || '');
             detailStr = stepId === 'rest_tlr' ? (involved ? restDetail : '') : (involved ? getStepDetailForAppointment(stepId, stepData) : '');
           }
@@ -5469,7 +5469,7 @@
       error: function(xhr, status, error) {
         console.error('Error loading boarding workflow data:', error);
         $('#boarding_workflow_steps_container [data-step-id]').each(function() {
-          $(this).find('[data-display="time"]').text('G��');
+          $(this).find('[data-display="time"]').text('—');
           $(this).find('[data-display="employee"]').text('');
           $(this).find('[data-display="detail"]').text('');
         });

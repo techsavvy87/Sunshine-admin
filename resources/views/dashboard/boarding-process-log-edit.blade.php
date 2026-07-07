@@ -1631,7 +1631,20 @@ function renderPetDetailsTable(data) {
 }
 
 $('#pet_details_search').on('input', function() {
-    const searchTerm = $(this).val().toLowerCase();
+    const searchTerm = ($(this).val() || '').trim().toLowerCase();
+
+    if (currentProcessItem === 'check_pet') {
+        const cards = $('#check_pet_accordion details[data-appointment-id]');
+        cards.each(function() {
+            const $card = $(this);
+            const petName = String($card.data('pet-name') || '').toLowerCase();
+            const customerName = String($card.data('customer-name') || '').toLowerCase();
+            const match = !searchTerm || petName.includes(searchTerm) || customerName.includes(searchTerm);
+            $card.toggle(match);
+        });
+        return;
+    }
+
     const rows = $('#pet_details_tbody tr');
     if (searchTerm === '') {
         rows.show();
@@ -1672,10 +1685,31 @@ function renderCheckPetForm() {
         const savedFleaTickData = currentData.flea_tick_data || {};
         const allOkKeys = ['nose', 'eyes', 'ears', 'mouth', 'body_coat', 'paws_feet', 'abdomen', 'digestive', 'diarrhea'];
 
+        const sortedAppointmentIds = [...selectedAppointmentIds].sort(function(a, b) {
+            const petA = appointmentToPetMap[a] || appointmentToPetMap[String(a)] || {};
+            const petB = appointmentToPetMap[b] || appointmentToPetMap[String(b)] || {};
+            const nameA = String(petA.pet_name || '').trim();
+            const nameB = String(petB.pet_name || '').trim();
+            const byName = nameA.localeCompare(nameB, undefined, {
+                sensitivity: 'base'
+            });
+            if (byName !== 0) {
+                return byName;
+            }
+
+            return String(a).localeCompare(String(b), undefined, {
+                numeric: true,
+                sensitivity: 'base'
+            });
+        });
+
         let bodyHtml = '';
-        selectedAppointmentIds.forEach(appointmentId => {
+        sortedAppointmentIds.forEach(appointmentId => {
                 const pet = appointmentToPetMap[appointmentId];
                 if (!pet) return;
+
+            const petNameAttr = (pet.pet_name || '').toLowerCase().replace(/"/g, '&quot;');
+            const customerNameAttr = (pet.customer_name || '').toLowerCase().replace(/"/g, '&quot;');
 
                 const petAvatarUrl = pet.pet_img ? '{{ asset("storage/pets/") }}/' + pet.pet_img : '{{ asset("images/no_image.jpg") }}';
                 const savedPetData = savedCheckData[appointmentId] || {};
@@ -1684,7 +1718,7 @@ function renderCheckPetForm() {
                 const allOkChecked = allOkKeys.every(key => ((savedPetData[key] || {}).status || '') === 'okay');
                 const badgeState = hasConcern ? 'concern' : (allOkChecked ? 'health' : 'incomplete');
 
-                bodyHtml += `<details class="collapse collapse-arrow bg-base-100 border border-base-300 rounded-box" data-appointment-id="${appointmentId}" ${hasConcern ? '' : 'open'}>`;
+                bodyHtml += `<details class="collapse collapse-arrow bg-base-100 border border-base-300 rounded-box" data-appointment-id="${appointmentId}" data-pet-name="${petNameAttr}" data-customer-name="${customerNameAttr}" ${hasConcern ? '' : 'open'}>`;
                 bodyHtml += `<summary class="collapse-title px-4 py-3 pr-14"><div class="flex items-center gap-3"><img src="${petAvatarUrl}" alt="Pet Image" class="mask mask-squircle bg-base-200 size-10" /><div><p class="font-medium leading-tight">${pet.pet_name || 'N/A'}</p><p class="text-xs text-base-content/70">${pet.customer_name || 'N/A'}</p></div>${badgeState === 'incomplete' ? '' : `<span class="badge check-pet-status-badge ${badgeState === 'concern' ? 'badge-error badge-soft' : 'badge-success badge-soft'}" data-appointment-id="${appointmentId}">${badgeState === 'concern' ? 'Concern' : 'Health'}</span>`}</div></summary>`;
                 bodyHtml += `<div class="collapse-content px-4 pb-4">`;
                 bodyHtml += `<div class="flex flex-wrap items-center justify-between gap-3 mb-4 border-b border-base-300 pb-3">`;
@@ -3144,6 +3178,36 @@ function renderEndOfDayForm() {
     });
 }
 
+function scrollPageToTopOnSuccessfulSave() {
+    if (window.location.hash) {
+        history.replaceState(null, '', window.location.pathname + window.location.search);
+    }
+
+    const candidates = [
+        document.scrollingElement,
+        document.documentElement,
+        document.body,
+        document.getElementById('layout-content'),
+        document.querySelector('.flex.h-screen.min-w-0.grow.flex-col.overflow-auto')
+    ].filter(Boolean);
+
+    candidates.forEach((element) => {
+        if (typeof element.scrollTo === 'function') {
+            element.scrollTo({
+                top: 0,
+                behavior: 'smooth'
+            });
+        } else {
+            element.scrollTop = 0;
+        }
+    });
+
+    window.scrollTo({
+        top: 0,
+        behavior: 'smooth'
+    });
+}
+
 $('#save_pet_details_btn').on('click', function() {
     const isFoodStep =
         (currentTab === 'am-feeding-meds' && (currentProcessItem === 'food_prep_am' || currentProcessItem ===
@@ -3521,6 +3585,14 @@ $('#save_pet_details_btn').on('click', function() {
                 updateWorkflowProgress();
                 $('#alert_message').text(response.message || 'Successfully saved workflow data.');
                 alert_modal.showModal();
+                scrollPageToTopOnSuccessfulSave();
+
+                if (alert_modal) {
+                    alert_modal.addEventListener('close', function handleAlertClose() {
+                        scrollPageToTopOnSuccessfulSave();
+                        alert_modal.removeEventListener('close', handleAlertClose);
+                    });
+                }
             } else {
                 $('#alert_message').text(response.message || 'Error updating workflow.');
                 alert_modal.showModal();
