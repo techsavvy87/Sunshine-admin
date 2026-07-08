@@ -209,6 +209,47 @@
     $headerLateHoursDecimal = 0;
     $headerEarlyDurationText = null;
 
+    $boardingAgreementFlows = (isBoardingService($appointment->service) && isset($checkedIn) && $checkedIn && is_array($checkedIn->flows))
+      ? $checkedIn->flows
+      : [];
+    $boardingAgreementStatuses = ['in_progress', 'completed', 'finished'];
+    $boardingAgreementOwnerName = trim((string) ($boardingAgreementFlows['boarding_owner_full_name'] ?? ''));
+    $boardingAgreementSignatureData = trim((string) ($boardingAgreementFlows['boarding_signature_data'] ?? ''));
+    $boardingAgreementAgreementAccepted = in_array(($boardingAgreementFlows['boarding_agreement_accepted'] ?? null), [true, 'true', 1, '1'], true);
+    $boardingAgreementVetAuthorized = in_array(($boardingAgreementFlows['boarding_vet_authorized'] ?? null), [true, 'true', 1, '1'], true);
+    $boardingAgreementIsSigned = $boardingAgreementAgreementAccepted
+      && $boardingAgreementVetAuthorized
+      && $boardingAgreementOwnerName !== ''
+      && $boardingAgreementSignatureData !== '';
+    $showBoardingSignedAgreementSummary = isBoardingService($appointment->service)
+      && in_array((string) $appointment->status, $boardingAgreementStatuses, true)
+      && $boardingAgreementIsSigned;
+
+    $boardingAgreementSignedAt = null;
+    $boardingAgreementSignedAtRaw = trim((string) ($boardingAgreementFlows['boarding_signature_signed_at'] ?? ''));
+    $boardingAgreementSignedDateRaw = trim((string) ($boardingAgreementFlows['boarding_signature_date'] ?? ''));
+    if ($boardingAgreementSignedAtRaw !== '') {
+      try {
+        $boardingAgreementSignedAt = \Carbon\Carbon::parse($boardingAgreementSignedAtRaw);
+      } catch (\Throwable $e) {
+        $boardingAgreementSignedAt = null;
+      }
+    }
+    if (!$boardingAgreementSignedAt && $boardingAgreementSignedDateRaw !== '') {
+      try {
+        $boardingAgreementSignedAt = \Carbon\Carbon::parse($boardingAgreementSignedDateRaw);
+      } catch (\Throwable $e) {
+        $boardingAgreementSignedAt = null;
+      }
+    }
+
+    $boardingAgreementSignedOnLabel = $boardingAgreementSignedAt
+      ? $boardingAgreementSignedAt->format('M j, Y')
+      : ($boardingAgreementSignedDateRaw !== '' ? $boardingAgreementSignedDateRaw : 'N/A');
+    $boardingAgreementSignedAtLabel = $boardingAgreementSignedAt
+      ? $boardingAgreementSignedAt->format('M j, Y g:i A')
+      : ($boardingAgreementSignedDateRaw !== '' ? $boardingAgreementSignedDateRaw : 'N/A');
+
     if ($appointment->status === 'completed' && $headerScheduledPickupAt && $headerActualCheckoutAt) {
       $headerLateSeconds = $headerScheduledPickupAt->diffInSeconds($headerActualCheckoutAt, false);
       $headerPickupIsLate = $headerLateSeconds > 0;
@@ -618,6 +659,90 @@
           </div>
         </div>
       </div>
+      @if ($showBoardingSignedAgreementSummary)
+      <div class="card card-border bg-base-100 mt-3">
+        <div class="card-body py-4">
+          <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p class="font-medium">Signed Boarding Agreement</p>
+              <div class="mt-2 space-y-1 text-sm text-base-content/80">
+                <p><span class="font-medium text-base-content">Status:</span> Signed</p>
+                <p><span class="font-medium text-base-content">Signed by:</span> {{ $boardingAgreementOwnerName }}</p>
+                <p><span class="font-medium text-base-content">Signed on:</span> {{ $boardingAgreementSignedOnLabel }}</p>
+              </div>
+            </div>
+            <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('boarding_signed_agreement_modal')?.showModal()">
+              View Signed Agreement
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <dialog id="boarding_signed_agreement_modal" class="modal">
+        <div class="modal-box max-w-3xl">
+          <h3 class="font-semibold text-lg">Signed Boarding Agreement</h3>
+
+          <div class="mt-4 rounded-box border border-base-300 bg-base-100 p-3 text-sm text-base-content/80 space-y-2">
+            <p>
+              <span class="font-medium text-base-content">Release and waiver:</span>
+              I understand boarding activities carry inherent risks and that The Sunshine Spot is not liable for injury, illness, or loss during my pet's stay, except where prohibited by law.
+            </p>
+            <p>
+              <span class="font-medium text-base-content">Authorization to treat:</span>
+              I authorize the facility to arrange reasonable care and treatment for my pet when needed during boarding.
+            </p>
+            <p>
+              <span class="font-medium text-base-content">Emergency care consent:</span>
+              If I cannot be reached promptly, I consent to emergency veterinary care deemed necessary for my pet's welfare.
+            </p>
+            <p>
+              <span class="font-medium text-base-content">Parasite and flea/tick acknowledgement:</span>
+              I understand that if fleas, ticks, or parasites are detected during boarding, necessary treatment may be administered and related fees may apply.
+            </p>
+            <p>
+              <span class="font-medium text-base-content">Facility policy acknowledgement:</span>
+              I acknowledge and agree to follow the facility's boarding policies, pickup requirements, cancellation policy, and payment terms.
+            </p>
+          </div>
+
+          <div class="mt-4 space-y-2 text-sm">
+            <p><span>{{ $boardingAgreementAgreementAccepted ? '☑' : '☐' }}</span> I have read and agree to the boarding agreement</p>
+            <p><span>{{ $boardingAgreementVetAuthorized ? '☑' : '☐' }}</span> I authorize the facility to seek veterinary treatment if needed</p>
+          </div>
+
+          <div class="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div>
+              <p class="text-sm font-medium">Owner full name</p>
+              <p class="text-sm text-base-content/80">{{ $boardingAgreementOwnerName !== '' ? $boardingAgreementOwnerName : 'N/A' }}</p>
+            </div>
+            <div>
+              <p class="text-sm font-medium">Signed date/time</p>
+              <p class="text-sm text-base-content/80">{{ $boardingAgreementSignedAtLabel }}</p>
+            </div>
+          </div>
+
+          <div class="mt-4">
+            <p class="text-sm font-medium mb-2">Signature</p>
+            <div class="rounded-box border border-base-300 bg-base-100 p-3">
+              @if ($boardingAgreementSignatureData !== '')
+                <img src="{{ $boardingAgreementSignatureData }}" alt="Owner Signature" class="w-full max-h-56 object-contain" />
+              @else
+                <p class="text-sm text-base-content/70">Signature not available.</p>
+              @endif
+            </div>
+          </div>
+
+          <div class="modal-action">
+            <form method="dialog">
+              <button class="btn btn-primary btn-sm">Close</button>
+            </form>
+          </div>
+        </div>
+        <form method="dialog" class="modal-backdrop">
+          <button>close</button>
+        </form>
+      </dialog>
+      @endif
       @if ($appointment->status === 'checked_in')
         @if (isGroomingService($appointment->service) || isAlaCarteService($appointment->service))
         <div class="card card-border bg-base-100 mt-3">
@@ -2370,6 +2495,7 @@
                           <canvas id="boarding_signature_pad" width="900" height="180" class="w-full" style="height: 180px;"></canvas>
                         </div>
                         <input type="hidden" id="boarding_signature_data" value="{{ $flows['boarding_signature_data'] ?? '' }}" />
+                        <input type="hidden" id="boarding_signature_signed_at" value="{{ $flows['boarding_signature_signed_at'] ?? '' }}" />
                         <p class="text-xs text-error mt-1 hidden" id="boarding_signature_error">Signature is required.</p>
                       </div>
                       <div>
@@ -4568,6 +4694,9 @@
 
     const ownerName = ($('#boarding_owner_full_name').val() || '').trim();
     const signatureData = $('#boarding_signature_data').val() || null;
+    const signatureSignedAt = signatureData
+      ? (($('#boarding_signature_signed_at').val() || '').trim() || new Date().toISOString())
+      : null;
     const restRequired = $('#boarding_rest_required').is(':checked');
     const restNote = ($('#boarding_rest_note').val() || '').trim();
 
@@ -4645,6 +4774,7 @@
       boarding_owner_full_name: ownerName || null,
       boarding_signature_data: signatureData,
       boarding_signature_date: $('#boarding_signature_date').val() || null,
+      boarding_signature_signed_at: signatureSignedAt,
 
       // Assignment or location
       location_type: $('input[name="boarding_location_type"]:checked').val() || null,
@@ -4791,6 +4921,9 @@
       isDrawing = false;
       context.closePath();
       $('#boarding_signature_data').val(canvas.toDataURL('image/png'));
+      if (!$('#boarding_signature_signed_at').val()) {
+        $('#boarding_signature_signed_at').val(new Date().toISOString());
+      }
       $('#boarding_signature_error').addClass('hidden');
       $('#boarding_signature_saved_note').addClass('hidden');
       validateBoardingAgreementSignature(false);
@@ -4828,6 +4961,7 @@
     const context = canvas.getContext('2d');
     context.clearRect(0, 0, canvas.width, canvas.height);
     $('#boarding_signature_data').val('');
+    $('#boarding_signature_signed_at').val('');
     $('#boarding_signature_error').removeClass('hidden');
     validateBoardingAgreementSignature(false);
   }

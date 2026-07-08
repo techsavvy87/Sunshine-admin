@@ -45,6 +45,44 @@
 </div>
 <div class="mt-3">
   @include('layouts.alerts')
+  @php
+    $archiveAgreementFlows = (isBoardingService($appointment->service) && isset($checkin) && $checkin && is_array($checkin->flows))
+      ? $checkin->flows
+      : [];
+    $archiveAgreementOwnerName = trim((string) ($archiveAgreementFlows['boarding_owner_full_name'] ?? ''));
+    $archiveAgreementSignatureData = trim((string) ($archiveAgreementFlows['boarding_signature_data'] ?? ''));
+    $archiveAgreementAccepted = in_array(($archiveAgreementFlows['boarding_agreement_accepted'] ?? null), [true, 'true', 1, '1'], true);
+    $archiveAgreementVetAuthorized = in_array(($archiveAgreementFlows['boarding_vet_authorized'] ?? null), [true, 'true', 1, '1'], true);
+    $archiveAgreementIsSigned = $archiveAgreementAccepted
+      && $archiveAgreementVetAuthorized
+      && $archiveAgreementOwnerName !== ''
+      && $archiveAgreementSignatureData !== '';
+
+    $archiveAgreementSignedAt = null;
+    $archiveAgreementSignedAtRaw = trim((string) ($archiveAgreementFlows['boarding_signature_signed_at'] ?? ''));
+    $archiveAgreementSignedDateRaw = trim((string) ($archiveAgreementFlows['boarding_signature_date'] ?? ''));
+    if ($archiveAgreementSignedAtRaw !== '') {
+      try {
+        $archiveAgreementSignedAt = \Carbon\Carbon::parse($archiveAgreementSignedAtRaw);
+      } catch (\Throwable $e) {
+        $archiveAgreementSignedAt = null;
+      }
+    }
+    if (!$archiveAgreementSignedAt && $archiveAgreementSignedDateRaw !== '') {
+      try {
+        $archiveAgreementSignedAt = \Carbon\Carbon::parse($archiveAgreementSignedDateRaw);
+      } catch (\Throwable $e) {
+        $archiveAgreementSignedAt = null;
+      }
+    }
+
+    $archiveAgreementSignedOnLabel = $archiveAgreementSignedAt
+      ? $archiveAgreementSignedAt->format('M j, Y')
+      : ($archiveAgreementSignedDateRaw !== '' ? $archiveAgreementSignedDateRaw : 'N/A');
+    $archiveAgreementSignedAtLabel = $archiveAgreementSignedAt
+      ? $archiveAgreementSignedAt->format('M j, Y g:i A')
+      : ($archiveAgreementSignedDateRaw !== '' ? $archiveAgreementSignedDateRaw : 'N/A');
+  @endphp
   <div class="grid grid-cols-1 gap-2 xl:grid-cols-5 border border-base-300 rounded-box px-5 py-2 text-sm">
     <div class="flex items-center gap-2">
       <p class="font-medium">Service: </p>
@@ -184,6 +222,90 @@
           </div>
         </div>
       </div>
+      @if ($archiveAgreementIsSigned)
+      <div class="card card-border bg-base-100 mt-3">
+        <div class="card-body py-4">
+          <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p class="font-medium">Signed Boarding Agreement</p>
+              <div class="mt-2 space-y-1 text-sm text-base-content/80">
+                <p><span class="font-medium text-base-content">Status:</span> Signed</p>
+                <p><span class="font-medium text-base-content">Signed by:</span> {{ $archiveAgreementOwnerName }}</p>
+                <p><span class="font-medium text-base-content">Signed on:</span> {{ $archiveAgreementSignedOnLabel }}</p>
+              </div>
+            </div>
+            <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('archive_boarding_signed_agreement_modal')?.showModal()">
+              View Signed Agreement
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <dialog id="archive_boarding_signed_agreement_modal" class="modal">
+        <div class="modal-box max-w-3xl">
+          <h3 class="font-semibold text-lg">Signed Boarding Agreement</h3>
+
+          <div class="mt-4 rounded-box border border-base-300 bg-base-100 p-3 text-sm text-base-content/80 space-y-2">
+            <p>
+              <span class="font-medium text-base-content">Release and waiver:</span>
+              I understand boarding activities carry inherent risks and that The Sunshine Spot is not liable for injury, illness, or loss during my pet's stay, except where prohibited by law.
+            </p>
+            <p>
+              <span class="font-medium text-base-content">Authorization to treat:</span>
+              I authorize the facility to arrange reasonable care and treatment for my pet when needed during boarding.
+            </p>
+            <p>
+              <span class="font-medium text-base-content">Emergency care consent:</span>
+              If I cannot be reached promptly, I consent to emergency veterinary care deemed necessary for my pet's welfare.
+            </p>
+            <p>
+              <span class="font-medium text-base-content">Parasite and flea/tick acknowledgement:</span>
+              I understand that if fleas, ticks, or parasites are detected during boarding, necessary treatment may be administered and related fees may apply.
+            </p>
+            <p>
+              <span class="font-medium text-base-content">Facility policy acknowledgement:</span>
+              I acknowledge and agree to follow the facility's boarding policies, pickup requirements, cancellation policy, and payment terms.
+            </p>
+          </div>
+
+          <div class="mt-4 space-y-2 text-sm">
+            <p><span>{{ $archiveAgreementAccepted ? '☑' : '☐' }}</span> I have read and agree to the boarding agreement</p>
+            <p><span>{{ $archiveAgreementVetAuthorized ? '☑' : '☐' }}</span> I authorize the facility to seek veterinary treatment if needed</p>
+          </div>
+
+          <div class="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div>
+              <p class="text-sm font-medium">Owner full name</p>
+              <p class="text-sm text-base-content/80">{{ $archiveAgreementOwnerName !== '' ? $archiveAgreementOwnerName : 'N/A' }}</p>
+            </div>
+            <div>
+              <p class="text-sm font-medium">Signed date/time</p>
+              <p class="text-sm text-base-content/80">{{ $archiveAgreementSignedAtLabel }}</p>
+            </div>
+          </div>
+
+          <div class="mt-4">
+            <p class="text-sm font-medium mb-2">Signature</p>
+            <div class="rounded-box border border-base-300 bg-base-100 p-3">
+              @if ($archiveAgreementSignatureData !== '')
+                <img src="{{ $archiveAgreementSignatureData }}" alt="Owner Signature" class="w-full max-h-56 object-contain" />
+              @else
+                <p class="text-sm text-base-content/70">Signature not available.</p>
+              @endif
+            </div>
+          </div>
+
+          <div class="modal-action">
+            <form method="dialog">
+              <button class="btn btn-primary btn-sm">Close</button>
+            </form>
+          </div>
+        </div>
+        <form method="dialog" class="modal-backdrop">
+          <button>close</button>
+        </form>
+      </dialog>
+      @endif
       @if ($appointment->status !== 'cancelled')
       <div class="card card-border bg-base-100 mt-3">
         <div class="card-body gap-0">
