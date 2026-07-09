@@ -305,6 +305,7 @@ Route::middleware(['auth'])->group(function () {
         Route::post('/appointment/{id}/notify/send', 'sendCustomerNotification')->name('send-appointment-customer-notification')->middleware('ensure.permission:3,can_update');
         Route::post('/appointment/{id}/completed/confirm', 'confirmCompleted')->name('confirm-completed-appointment')->middleware('ensure.permission:3,can_update');
         Route::post('/appointment/{id}/status/update', 'updateStatus')->name('update-appointment-status')->middleware('ensure.permission:3,can_update');
+        Route::get('/appointment/{id}/signed-boarding-agreement/pdf', 'exportSignedBoardingAgreementPDF')->name('export-signed-boarding-agreement-pdf')->middleware('ensure.permission:3,can_read');
 
         Route::get('/appointment/customers', 'getCustomers')->name('get-appointment-customers')->middleware('ensure.permission:3,can_read');
         Route::get('/appointment/pets/{customerId}', 'getCustomerPets')->name('get-customer-pets')->middleware('ensure.permission:3,can_read');

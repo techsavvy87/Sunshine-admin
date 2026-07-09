@@ -234,9 +234,14 @@
                 <p><span class="font-medium text-base-content">Signed on:</span> {{ $archiveAgreementSignedOnLabel }}</p>
               </div>
             </div>
-            <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('archive_boarding_signed_agreement_modal')?.showModal()">
-              View Signed Agreement
-            </button>
+            <div class="flex flex-wrap items-center gap-2">
+              <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('archive_boarding_signed_agreement_modal')?.showModal()">
+                View Signed Agreement
+              </button>
+              <a href="{{ route('export-signed-boarding-agreement-pdf', $appointment->id) }}" target="_blank" rel="noopener" class="btn btn-primary btn-sm">
+                Print Signed Agreement
+              </a>
+            </div>
           </div>
         </div>
       </div>
@@ -296,6 +301,9 @@
           </div>
 
           <div class="modal-action">
+            <a href="{{ route('export-signed-boarding-agreement-pdf', $appointment->id) }}" target="_blank" rel="noopener" class="btn btn-primary btn-sm">
+              Print Signed Agreement
+            </a>
             <form method="dialog">
               <button class="btn btn-primary btn-sm">Close</button>
             </form>

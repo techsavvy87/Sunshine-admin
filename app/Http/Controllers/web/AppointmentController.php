@@ -27,6 +27,7 @@ use App\Models\Notification;
 use App\Models\Kennel;
 use App\Models\Room;
 use App\Services\AppointmentBookingNotifier;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Log;
@@ -295,6 +296,151 @@ class AppointmentController extends Controller
             ->get(['id', 'name', 'status']);
 
         return response()->json($kennels);
+    }
+
+    public function exportSignedBoardingAgreementPDF($id)
+    {
+        $appointment = Appointment::with([
+            'pet',
+            'customer.profile',
+            'service',
+        ])->findOrFail($id);
+
+        if (!isBoardingService($appointment->service)) {
+            abort(404);
+        }
+
+        $checkin = Checkin::where('appointment_id', $appointment->id)->first();
+        $flows = [];
+
+        if ($checkin && !empty($checkin->flows)) {
+            $decodedFlows = is_array($checkin->flows)
+                ? $checkin->flows
+                : json_decode($checkin->flows, true);
+
+            $flows = is_array($decodedFlows) ? $decodedFlows : [];
+        }
+
+        $ownerFullName = trim((string) ($flows['boarding_owner_full_name'] ?? ''));
+        $signatureData = trim((string) ($flows['boarding_signature_data'] ?? ''));
+
+        if ($signatureData !== '' && preg_match('/^data:image\/[a-zA-Z0-9.+-]+;base64,/', $signatureData)) {
+            $parts = explode(',', $signatureData, 2);
+            if (count($parts) === 2) {
+                $normalizedPayload = preg_replace('/\s+/', '', $parts[1]);
+                $normalizedPayload = str_replace(' ', '+', $normalizedPayload);
+                $signatureData = $parts[0] . ',' . $normalizedPayload;
+            }
+        }
+
+        $agreementAccepted = in_array(($flows['boarding_agreement_accepted'] ?? null), [true, 'true', 1, '1'], true);
+        $vetAuthorized = in_array(($flows['boarding_vet_authorized'] ?? null), [true, 'true', 1, '1'], true);
+
+        $isSigned = $agreementAccepted
+            && $vetAuthorized
+            && $ownerFullName !== ''
+            && $signatureData !== '';
+
+        if (!$isSigned) {
+            return redirect()->back()->with('error', 'Signed boarding agreement was not found for this appointment.');
+        }
+
+        $signedAt = null;
+        $signedAtRaw = trim((string) ($flows['boarding_signature_signed_at'] ?? ''));
+        $signedDateRaw = trim((string) ($flows['boarding_signature_date'] ?? ''));
+
+        if ($signedAtRaw !== '') {
+            try {
+                $signedAt = Carbon::parse($signedAtRaw);
+            } catch (\Throwable $e) {
+                $signedAt = null;
+            }
+        }
+
+        if (!$signedAt && $signedDateRaw !== '') {
+            try {
+                $signedAt = Carbon::parse($signedDateRaw);
+            } catch (\Throwable $e) {
+                $signedAt = null;
+            }
+        }
+
+        $signedAtLabel = $signedAt
+            ? $signedAt->format('M j, Y g:i A')
+            : ($signedDateRaw !== '' ? $signedDateRaw : 'N/A');
+
+        $pets = $appointment->family_pets;
+        if ($pets->isEmpty() && $appointment->pet) {
+            $pets = collect([$appointment->pet]);
+        }
+
+        $petNames = $pets
+            ->pluck('name')
+            ->filter()
+            ->values();
+
+        $ownerProfileName = trim((string) (
+            (optional(optional($appointment->customer)->profile)->first_name ?? '') . ' ' .
+            (optional(optional($appointment->customer)->profile)->last_name ?? '')
+        ));
+
+        $checkinDateRaw = $checkin->date ?? $appointment->date ?? null;
+        $pickupDateRaw = $appointment->end_date ?? null;
+
+        if (!$pickupDateRaw && !empty($appointment->date) && !empty($appointment->end_time)) {
+            $pickupDateRaw = $appointment->date;
+        }
+
+        $checkinDateLabel = $checkinDateRaw ? Carbon::parse($checkinDateRaw)->format('M j, Y') : 'N/A';
+        $pickupDateLabel = $pickupDateRaw ? Carbon::parse($pickupDateRaw)->format('M j, Y') : 'N/A';
+
+        $viewData = [
+            'appointment' => $appointment,
+            'petNames' => $petNames,
+            'ownerDisplayName' => $ownerFullName !== '' ? $ownerFullName : ($ownerProfileName !== '' ? $ownerProfileName : 'N/A'),
+            'ownerProfileName' => $ownerProfileName,
+            'agreementAccepted' => $agreementAccepted,
+            'vetAuthorized' => $vetAuthorized,
+            'signatureData' => $signatureData,
+            'signatureRenderFallbackMessage' => null,
+            'signedAtLabel' => $signedAtLabel,
+            'checkinDateLabel' => $checkinDateLabel,
+            'pickupDateLabel' => $pickupDateLabel,
+        ];
+
+        $filename = 'signed-boarding-agreement-appointment-' . $appointment->id . '.pdf';
+
+        try {
+            $pdf = Pdf::loadView('appointments.signed-boarding-agreement-pdf', $viewData)
+                ->setPaper('letter');
+
+            return $pdf->download($filename);
+        } catch (\Throwable $e) {
+            $isGdRelatedError = str_contains(strtolower($e->getMessage()), 'php gd extension is required');
+
+            if ($signatureData !== '' && $isGdRelatedError) {
+                Log::warning('Signed agreement PDF fallback used due to GD-related DomPDF error.', [
+                    'appointment_id' => $appointment->id,
+                    'php_sapi' => PHP_SAPI,
+                    'php_binary' => PHP_BINARY,
+                    'php_ini_loaded_file' => php_ini_loaded_file(),
+                    'php_ini_scanned_files' => php_ini_scanned_files(),
+                    'gd_extension_loaded' => extension_loaded('gd'),
+                    'imagecreatefrompng_exists' => function_exists('imagecreatefrompng'),
+                    'exception_message' => $e->getMessage(),
+                ]);
+
+                $viewData['signatureData'] = '';
+                $viewData['signatureRenderFallbackMessage'] = 'Signature captured electronically (image preview unavailable because PHP GD extension is not available in the web server PHP runtime).';
+
+                $fallbackPdf = Pdf::loadView('appointments.signed-boarding-agreement-pdf', $viewData)
+                    ->setPaper('letter');
+
+                return $fallbackPdf->download($filename);
+            }
+
+            throw $e;
+        }
     }
 
     private function getFamilyKennelMode(array $petIds): string
