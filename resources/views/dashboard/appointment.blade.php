@@ -1320,12 +1320,11 @@
                       <input type="datetime-local" id="paid_at" class="input w-full input-sm" value="{{ $invoice ? $invoice->paid_at : '' }}"/>
                     </fieldset>
                     <fieldset class="fieldset">
-                      <legend class="fieldset-legend">Status</legend>
+                      <legend class="fieldset-legend">Invoice Action</legend>
                       <select class="select w-full input-sm" id="status" value="{{ $invoice ? $invoice->status : '' }}">
-                        <option value="draft" {{ $invoice && $invoice->status == 'draft' ? 'selected' : '' }}>Draft</option>
-                        <option value="sent" {{ $invoice && $invoice->status == 'sent' ? 'selected' : '' }}>Sent</option>
-                        <option value="paid" {{ $invoice && $invoice->status == 'paid' ? 'selected' : '' }}>Paid</option>
-                        <option value="void" {{ $invoice && $invoice->status == 'void' ? 'selected' : '' }}>Void</option>
+                        <option value="">Select action</option>
+                        <option value="sent" {{ $invoice && $invoice->status == 'sent' ? 'selected' : '' }}>Send Invoice</option>
+                        <option value="paid" {{ $invoice && $invoice->status == 'paid' ? 'selected' : '' }}>Pay In Person</option>
                       </select>
                     </fieldset>
                   </div>
@@ -1336,13 +1335,13 @@
                   <fieldset class="fieldset">
                     <legend class="fieldset-legend">Inventory Items</legend>
                     <div class="flex items-center gap-2">
-                      <select class="select w-full select-sm" name="inventory_item" id="inventory_item">
+                      <select class="select w-full select-sm" name="inventory_item" id="inventory_item" {{ $isInvoiceEditingLocked || !canEditInvoice() ? 'disabled' : '' }}>
                       </select>
-                      <button type="button" class="btn btn-sm btn-outline btn-primary" onclick="addInventoryItem()" {{ $isInvoiceEditingLocked ? 'disabled' : '' }}>
+                      <button type="button" class="btn btn-sm btn-outline btn-primary" onclick="addInventoryItem()" {{ $isInvoiceEditingLocked || !canEditInvoice() ? 'disabled' : '' }} title="{{ !canEditInvoice() ? 'Only the facility owner can add items.' : ($isInvoiceEditingLocked ? 'Invoice is locked.' : '') }}">
                         <span class="iconify lucide--plus size-3"></span>
                         <span class="hidden sm:inline">Add</span>
                       </button>
-                      <button type="button" class="btn btn-sm btn-outline" id="add_line_item_btn" onclick="addCustomLineItem()" {{ $isInvoiceEditingLocked ? 'disabled' : '' }}>
+                      <button type="button" class="btn btn-sm btn-outline" id="add_line_item_btn" onclick="addCustomLineItem()" {{ $isInvoiceEditingLocked || !canEditInvoice() ? 'disabled' : '' }} title="{{ !canEditInvoice() ? 'Only the facility owner can add items.' : ($isInvoiceEditingLocked ? 'Invoice is locked.' : '') }}">
                         <span class="iconify lucide--plus size-3"></span>
                         <span class="hidden sm:inline">Add Line Item</span>
                       </button>
@@ -1601,11 +1600,9 @@
                             <td width="56%">{{ $invoiceItem->item_name }}</td>
                             <td>${{ number_format($invoiceItem->price, 2) }}</td>
                             <td>
-                              @if(!$isInvoiceEditingLocked)
-                              <button type="button" class="btn btn-sm btn-ghost btn-circle" style="height: 16px" onclick="removeExistingInvoiceItem({{ $invoiceItem->id }})">
-                                <span class="iconify lucide--trash-2 size-3 text-error"></span>
+                              <button type="button" class="btn btn-sm btn-ghost btn-circle" style="height: 16px" onclick="removeExistingInvoiceItem({{ $invoiceItem->id }})" {{ $isInvoiceEditingLocked || !canEditInvoice() ? 'disabled' : '' }} title="{{ !canEditInvoice() ? 'Only the facility owner can delete items.' : ($isInvoiceEditingLocked ? 'Invoice is locked.' : '') }}">
+                                <span class="iconify lucide--trash-2 size-3 {{ $isInvoiceEditingLocked || !canEditInvoice() ? 'text-gray-400' : 'text-error' }}"></span>
                               </button>
-                              @endif
                             </td>
                           </tr>
                           @elseif($invoiceItemType === 'custom')
@@ -1614,11 +1611,9 @@
                             <td width="56%">{{ $invoiceItem->item_name }}</td>
                             <td>${{ number_format($invoiceItem->price, 2) }}</td>
                             <td>
-                              @if(!$isInvoiceEditingLocked)
-                              <button type="button" class="btn btn-sm btn-ghost btn-circle" style="height: 16px" onclick="removeExistingInvoiceItem({{ $invoiceItem->id }})">
-                                <span class="iconify lucide--trash-2 size-3 text-error"></span>
+                              <button type="button" class="btn btn-sm btn-ghost btn-circle" style="height: 16px" onclick="removeExistingInvoiceItem({{ $invoiceItem->id }})" {{ $isInvoiceEditingLocked || !canEditInvoice() ? 'disabled' : '' }} title="{{ !canEditInvoice() ? 'Only the facility owner can delete items.' : ($isInvoiceEditingLocked ? 'Invoice is locked.' : '') }}">
+                                <span class="iconify lucide--trash-2 size-3 {{ $isInvoiceEditingLocked || !canEditInvoice() ? 'text-gray-400' : 'text-error' }}"></span>
                               </button>
-                              @endif
                             </td>
                           </tr>
                           @else
@@ -1627,11 +1622,9 @@
                             <td width="56%">{{ $invoiceItem->item_name }}</td>
                             <td>${{ number_format($invoiceItem->price, 2) }}</td>
                             <td>
-                              @if(!$isInvoiceEditingLocked)
-                              <button type="button" class="btn btn-sm btn-ghost btn-circle" style="height: 16px" onclick="removeExistingInvoiceItem({{ $invoiceItem->id }})">
-                                <span class="iconify lucide--trash-2 size-3 text-error"></span>
+                              <button type="button" class="btn btn-sm btn-ghost btn-circle" style="height: 16px" onclick="removeExistingInvoiceItem({{ $invoiceItem->id }})" {{ $isInvoiceEditingLocked || !canEditInvoice() ? 'disabled' : '' }} title="{{ !canEditInvoice() ? 'Only the facility owner can delete items.' : ($isInvoiceEditingLocked ? 'Invoice is locked.' : '') }}">
+                                <span class="iconify lucide--trash-2 size-3 {{ $isInvoiceEditingLocked || !canEditInvoice() ? 'text-gray-400' : 'text-error' }}"></span>
                               </button>
-                              @endif
                             </td>
                           </tr>
                           @endif
@@ -1759,7 +1752,7 @@
                   </table>
                 </div>
                 <div class="mt-3">
-                  @if(hasPermission(14, 'can_create') && !$isInvoiceEditingLocked)
+                  @if(!$isInvoiceEditingLocked)
                   <button type="button" id="save_invoice_btn" class="btn btn-primary btn-soft btn-sm" onclick="saveInvoice({{ $appointment->id }})">
                     <span class="loading loading-spinner loading-sm" style="display: none;"></span>
                     Save Invoice
@@ -3167,17 +3160,6 @@
                           </div>
                           @endif
 
-                          @if(!empty($petSummary['behavior']))
-                          <div>
-                            <p class="font-medium text-sm">Behavior</p>
-                            <ul class="list-disc ms-4 text-sm text-base-content/80 space-y-1">
-                              @foreach($petSummary['behavior'] as $item)
-                                <li>{{ $item }}</li>
-                              @endforeach
-                            </ul>
-                          </div>
-                          @endif
-
                           @if(!empty($petSummary['notes']))
                           <div>
                             <p class="font-medium text-sm">Notes</p>
@@ -3292,7 +3274,7 @@
                 @endif
                 <div class="mt-3">
                   <p class="font-medium mb-2">Notes for {{ $appointment->service->name }}:</p>
-                  <div class="mb-2 ms-4">
+                  <div class="mb-2">
                     <textarea class="textarea textarea-bordered w-full" placeholder="Add any notes about the {{ strtolower($appointment->service->name) }}..." id="checkout_service_notes" name="checkout_service_notes" rows="3">{{ $checkout && $checkout->flows && isset($checkout->flows['service_notes']) ? $checkout->flows['service_notes'] : '' }}</textarea>
                   </div>
                 </div>
@@ -3321,30 +3303,6 @@
                 </div>
               </div>
               @endif
-              <hr class="mt-5" style="color: lightgray"/>
-              <div class="mt-4 text-sm space-y-4">
-                <div>
-                  <p class="font-medium mb-2">Behavior:</p>
-                  <div class="mb-2 ms-4 pet-behavior">
-                    @php
-                      $selectedBehaviorIds = is_array($appointment->pet->pet_behavior_id ?? null)
-                        ? collect($appointment->pet->pet_behavior_id)->map(fn ($id) => (string) $id)->toArray()
-                        : (!empty($appointment->pet->pet_behavior_id) ? [(string) $appointment->pet->pet_behavior_id] : []);
-                    @endphp
-                    <select class="select w-full" id="pet_behavior_id" name="checkout_behavior_ids[]" multiple>
-                      @foreach($petBehaviors as $behavior)
-                        <option
-                          value="{{ $behavior->id }}"
-                          data-icon-b64="{{ base64_encode($behavior->icon?->icon ?? '') }}"
-                          {{ in_array((string) $behavior->id, $selectedBehaviorIds, true) ? 'selected' : '' }}
-                        >
-                          {{ $behavior->description }}
-                        </option>
-                      @endforeach
-                    </select>
-                  </div>
-                </div>
-              </div>
             </div>
           </div>
         </div>
@@ -3474,7 +3432,6 @@
           <option value="">Select payment type</option>
           <option value="cash">Cash</option>
           <option value="check">Check</option>
-          <option value="cc">Credit Card</option>
         </select>
         <div id="payment_method_static" class="input input-bordered w-full input-sm hidden">
           Cash
@@ -5827,6 +5784,7 @@
   const scheduledPickupDateTime = @json((!empty($appointment->end_date) && !empty($appointment->end_time)) ? ($appointment->end_date . ' ' . $appointment->end_time) : null);
   const canOverrideInvoiceLock = {{ ($canOverrideInvoiceLock ?? false) ? 'true' : 'false' }};
   const invoiceEditingLocked = {{ ($isInvoiceEditingLocked ?? false) ? 'true' : 'false' }};
+  const canEditInvoice = {{ (canEditInvoice() ? 'true' : 'false') }};
   let currentDiscountTitle = null;
   const invoiceCustomerFullName = @json(trim((($appointment->customer->profile->first_name ?? '') . ' ' . ($appointment->customer->profile->last_name ?? ''))) ?: ($appointment->customer->name ?? 'customer'));
 
@@ -5951,18 +5909,21 @@
 
       const description = escapeHtml(getInvoiceRowDescription($row));
       const price = getInvoiceRowPrice($row);
+      const disabledAttr = !canEditInvoice ? 'disabled' : '';
 
-      $row.find('td:nth-child(2)').html('<input type="text" class="input input-bordered input-xs w-full invoice-item-description" value="' + description + '" />');
-      $row.find('td:nth-child(3)').html('<input type="number" step="0.01" class="input input-bordered input-xs w-full invoice-item-price" value="' + price.toFixed(2) + '" />');
+      $row.find('td:nth-child(2)').html('<input type="text" class="input input-bordered input-xs w-full invoice-item-description" value="' + description + '" ' + disabledAttr + ' />');
+      $row.find('td:nth-child(3)').html('<input type="number" step="0.01" class="input input-bordered input-xs w-full invoice-item-price" value="' + price.toFixed(2) + '" ' + disabledAttr + ' />');
 
       if ($row.find('td:nth-child(4)').length === 0) {
         $row.append('<td></td>');
       }
 
       if ($row.find('.remove-line-item-btn').length === 0) {
+        const trashColorClass = canEditInvoice ? 'text-error' : 'text-gray-400';
+        const disabledAttr = canEditInvoice ? '' : 'disabled';
         $row.find('td:nth-child(4)').html(
-          '<button type="button" class="btn btn-sm btn-ghost btn-circle remove-line-item-btn" style="height: 16px">'
-          + '<span class="iconify lucide--trash-2 size-3 text-error"></span>'
+          '<button type="button" class="btn btn-sm btn-ghost btn-circle remove-line-item-btn" style="height: 16px" ' + disabledAttr + '>'
+          + '<span class="iconify lucide--trash-2 size-3 ' + trashColorClass + '"></span>'
           + '</button>'
         );
       }
@@ -6080,14 +6041,19 @@
   applyInvoiceLockState();
 
   $(document).on('input', '.invoice-item-price, .invoice-item-description', function() {
+    if (!canEditInvoice) {
+      return false;
+    }
     updateTotals();
   });
 
   $(document).on('click', '.remove-line-item-btn', function() {
     if (invoiceEditingLocked) {
-      $('#alert_message').text('Invoice is locked and cannot be edited.');
-      alert_modal.showModal();
-      return;
+      return false;
+    }
+
+    if (!canEditInvoice) {
+      return false;
     }
 
     $(this).closest('tr').remove();
@@ -6103,9 +6069,11 @@
 
   function addInventoryItem() {
     if (invoiceEditingLocked) {
-      $('#alert_message').text('Invoice is locked and cannot be edited.');
-      alert_modal.showModal();
-      return;
+      return false;
+    }
+
+    if (!canEditInvoice) {
+      return false;
     }
 
     const selectedItem = $('#inventory_item').select2('data')[0];
@@ -6118,12 +6086,12 @@
     const newRow = `
       <tr id="item_row_${itemIdx}" class="inventory-row" data-item-type="inventory">
         <td>${$('#pricing_table tr').length}</td>
-        <td width="56%"><input type="text" class="input input-bordered input-xs w-full invoice-item-description" value="${escapeHtml(selectedItem.brand)}" /></td>
-        <td><input type="number" step="0.01" class="input input-bordered input-xs w-full invoice-item-price" value="${parseFloat(selectedItem.price).toFixed(2)}" /></td>
+        <td width="56%"><input type="text" class="input input-bordered input-xs w-full invoice-item-description" value="${escapeHtml(selectedItem.brand)}" ${canEditInvoice ? '' : 'disabled'} /></td>
+        <td><input type="number" step="0.01" class="input input-bordered input-xs w-full invoice-item-price" value="${parseFloat(selectedItem.price).toFixed(2)}" ${canEditInvoice ? '' : 'disabled'} /></td>
         <td>
-          <button type="button" class="btn btn-sm btn-ghost btn-circle remove-line-item-btn" style="height: 16px">
+          ${canEditInvoice ? `<button type="button" class="btn btn-sm btn-ghost btn-circle remove-line-item-btn" style="height: 16px">
             <span class="iconify lucide--trash-2 size-3 text-error"></span>
-          </button>
+          </button>` : ''}
         </td>
       </tr>
     `;
@@ -6137,20 +6105,22 @@
 
   function addCustomLineItem() {
     if (invoiceEditingLocked) {
-      $('#alert_message').text('Invoice is locked and cannot be edited.');
-      alert_modal.showModal();
-      return;
+      return false;
+    }
+
+    if (!canEditInvoice) {
+      return false;
     }
 
     const newRow = `
       <tr id="custom_item_row_${itemIdx}" class="service-row custom-line-row" data-item-type="custom">
         <td>${$('#pricing_table tr').length}</td>
-        <td width="56%"><input type="text" class="input input-bordered input-xs w-full invoice-item-description" placeholder="Line item description" value="" /></td>
-        <td><input type="number" step="0.01" class="input input-bordered input-xs w-full invoice-item-price" value="0.00" /></td>
+        <td width="56%"><input type="text" class="input input-bordered input-xs w-full invoice-item-description" placeholder="Line item description" value="" ${canEditInvoice ? '' : 'disabled'} /></td>
+        <td><input type="number" step="0.01" class="input input-bordered input-xs w-full invoice-item-price" value="0.00" ${canEditInvoice ? '' : 'disabled'} /></td>
         <td>
-          <button type="button" class="btn btn-sm btn-ghost btn-circle remove-line-item-btn" style="height: 16px">
+          ${canEditInvoice ? `<button type="button" class="btn btn-sm btn-ghost btn-circle remove-line-item-btn" style="height: 16px">
             <span class="iconify lucide--trash-2 size-3 text-error"></span>
-          </button>
+          </button>` : ''}
         </td>
       </tr>
     `;
@@ -6169,9 +6139,11 @@
 
   function removeExistingInvoiceItem(itemId) {
     if (invoiceEditingLocked) {
-      $('#alert_message').text('Invoice is locked and cannot be edited.');
-      alert_modal.showModal();
-      return;
+      return false;
+    }
+
+    if (!canEditInvoice) {
+      return false;
     }
 
     $(`tr[data-item-id="${itemId}"]`).remove();
@@ -6393,18 +6365,11 @@
 
     paymentMethod.append($('<option>').val('').text('Select payment type'));
     paymentMethod.append($('<option>').val('cash').text('Cash'));
+    paymentMethod.append($('<option>').val('check').text('Check'));
 
-    if (normalizedStatus !== 'paid') {
-      paymentMethod.append($('<option>').val('check').text('Check'));
-      paymentMethod.append($('<option>').val('cc').text('Credit Card'));
-      paymentMethod.val('');
-      $('#payment_method').removeClass('hidden');
-      $('#payment_method_static').addClass('hidden');
-    } else {
-      paymentMethod.val('cash');
-      $('#payment_method').addClass('hidden');
-      $('#payment_method_static').removeClass('hidden');
-    }
+    paymentMethod.val('');
+    $('#payment_method').removeClass('hidden');
+    $('#payment_method_static').addClass('hidden');
   }
 
   function saveInvoice(appointmentId) {

@@ -101,10 +101,10 @@ class AdminPaymentController extends Controller
 
     public function withdraw(Request $request)
     {
-        if (!hasPermission(14, 'can_create')) {
+        if (!canWithdrawFunds()) {
             return redirect()->route('financials.payouts')->with([
                 'status' => 'fail',
-                'message' => 'You do not have permission to withdraw funds.',
+                'message' => 'Only the facility owner can perform this action.',
             ]);
         }
 

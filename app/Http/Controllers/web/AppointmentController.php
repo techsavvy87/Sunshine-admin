@@ -4175,12 +4175,12 @@ class AppointmentController extends Controller
             'items' => 'nullable|array',
             'discount_title' => 'nullable|string|max:255',
             'payment_amount' => 'nullable|numeric|min:0',
-            'payment_method' => 'nullable|in:cash,check,cc',
+            'payment_method' => 'nullable|in:cash,check',
             'payment_notes' => 'nullable|string|max:1000',
         ];
 
         if (strtolower((string) $request->status) === 'paid') {
-            $rules['payment_method'] = 'required|in:cash';
+            $rules['payment_method'] = 'required|in:cash,check';
         }
 
         $request->validate($rules);
@@ -4331,7 +4331,7 @@ class AppointmentController extends Controller
         $emailFailed = false;
         if ($request->status === 'sent' || ($request->status === 'paid' && $request->payment_amount)) {
             try {
-                // $this->sendInvoiceEmail($invoice, $appointment, $items, $discountInfo, $paymentLink);
+                $this->sendInvoiceEmail($invoice, $appointment, $items, $discountInfo, $paymentLink);
             } catch (\Throwable $e) {
                 $emailFailed = true;
                 Log::error('Failed to send invoice email after saving invoice.', [
@@ -4428,7 +4428,7 @@ class AppointmentController extends Controller
         ];
 
         try {
-            // Mail::to($invoice->email)->send(new InvoiceMail($emailData));
+            Mail::to($invoice->email)->send(new InvoiceMail($emailData));
             Log::info('Invoice email sent', ['invoice_id' => $invoice->id, 'to' => $invoice->email]);
         } catch (\Exception $e) {
             Log::error('Failed to send invoice email', ['invoice_id' => $invoice->id, 'to' => $invoice->email, 'error' => $e->getMessage()]);
@@ -4607,7 +4607,7 @@ class AppointmentController extends Controller
                 'sender_name' => $senderName,
             ];
 
-            // Mail::to($customerEmail)->send(new AdminCustomerMessage($messageData));
+            Mail::to($customerEmail)->send(new AdminCustomerMessage($messageData));
 
             return response()->json([
                 'status' => true,

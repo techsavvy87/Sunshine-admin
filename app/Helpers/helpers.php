@@ -1033,6 +1033,63 @@ if (!function_exists('hasPermission')) {
     }
 }
 
+if (!function_exists('isFacilityOwner')) {
+    /**
+     * Check if the authenticated user is a facility Owner
+     *
+     * @return bool
+     */
+    function isFacilityOwner()
+    {
+        if (!auth()->check()) {
+            return false;
+        }
+
+        return auth()->user()->roles()
+            ->whereRaw('LOWER(title) in (?, ?)', ['owner', 'admin'])
+            ->exists();
+    }
+}
+
+if (!function_exists('canManagePricing')) {
+    /**
+     * Check if the authenticated user can manage service prices
+     * Only facility Owner can perform this action
+     *
+     * @return bool
+     */
+    function canManagePricing()
+    {
+        return isFacilityOwner();
+    }
+}
+
+if (!function_exists('canEditInvoice')) {
+    /**
+     * Check if the authenticated user can edit invoices and line items
+     * Only facility Owner can perform this action
+     *
+     * @return bool
+     */
+    function canEditInvoice()
+    {
+        return isFacilityOwner();
+    }
+}
+
+if (!function_exists('canWithdrawFunds')) {
+    /**
+     * Check if the authenticated user can withdraw funds
+     * Only facility Owner can perform this action
+     *
+     * @return bool
+     */
+    function canWithdrawFunds()
+    {
+        return isFacilityOwner();
+    }
+}
+
 if (!function_exists('getServicePermissionId')) {
     function getServicePermissionId($service)
     {
