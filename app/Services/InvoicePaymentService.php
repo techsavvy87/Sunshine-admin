@@ -177,12 +177,16 @@ class InvoicePaymentService
             'appointment_id' => $appointment->id,
             'invoice_id' => $invoice->id,
             'customer_name' => $customerName,
-            'payment_amount' => $paymentAmount,
+            'payment_amount' => $this->formatMetadataAmount($paymentAmount),
             'payment_type' => $paymentMethod,
             'payment_type_label' => $paymentLabel,
             'timestamp' => optional($transaction->tran_date)->format('Y-m-d H:i:s'),
-            'balance_due' => $summary['balance_due'] ?? null,
-            'payments_received' => $summary['payments_received'] ?? null,
+            'balance_due' => isset($summary['balance_due'])
+                ? $this->formatMetadataAmount($summary['balance_due'])
+                : null,
+            'payments_received' => isset($summary['payments_received'])
+                ? $this->formatMetadataAmount($summary['payments_received'])
+                : null,
             'invoice_status' => $summary['status'] ?? null,
         ];
 
@@ -232,5 +236,10 @@ class InvoicePaymentService
             'check' => 'check',
             default => str_replace('_', ' ', $paymentMethod),
         };
+    }
+
+    private function formatMetadataAmount(mixed $amount): string
+    {
+        return rtrim(rtrim(number_format((float) $amount, 2, '.', ''), '0'), '.');
     }
 }
