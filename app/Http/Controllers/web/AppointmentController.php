@@ -27,6 +27,7 @@ use App\Models\Notification;
 use App\Models\Kennel;
 use App\Models\Room;
 use App\Services\AppointmentBookingNotifier;
+use App\Services\InvoicePaymentService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Mail;
@@ -4171,7 +4172,7 @@ class AppointmentController extends Controller
             'issued_at' => 'nullable|date',
             'due_date' => 'nullable|date',
             'paid_at' => 'nullable|date',
-            'status' => 'nullable|in:draft,sent,paid,void,finalized',
+            'status' => 'nullable|in:draft,sent,partially_paid,paid,void,finalized',
             'notes' => 'nullable|string|max:1000',
             'items' => 'nullable|array',
             'discount_title' => 'nullable|string|max:255',
@@ -4186,6 +4187,7 @@ class AppointmentController extends Controller
         }
 
         $request->validate($rules);
+        $paymentService = app(InvoicePaymentService::class);
 
         $appointment = Appointment::find($id);
         if (!$appointment) {
@@ -4301,54 +4303,60 @@ class AppointmentController extends Controller
         ];
 
         $paymentLink = null;
-        if ($action === 'send') {
-            // Reuse existing pending/processing payment link for this invoice if present
-            $paymentLink = \App\Models\PaymentLink::where('invoice_id', $invoice->id)
-                ->whereIn('status', ['pending', 'processing'])
-                ->latest()
-                ->first();
+        $paymentSummary = $paymentService->syncInvoiceState($invoice->fresh());
+        $remainingBalance = round(floatval($paymentSummary['balance_due'] ?? 0), 2);
+        $invoiceTotalAmount = round(floatval($paymentSummary['total_amount'] ?? $invoiceTotalAmount), 2);
+        $transactionPayload = null;
 
-            if ($paymentLink) {
-                $paymentLink->amount = $invoiceTotalAmount;
-                $paymentLink->currency = 'usd';
-                $paymentLink->expires_at = now()->addDays(30);
-                $paymentLink->save();
-            } else {
-                $paymentLink = createPaymentLink($invoice, $appointment, $invoiceTotalAmount);
-            }
-        }
-
-        $remainingBalance = null;
         if ($action === 'pay' && $request->payment_amount && $request->payment_method) {
-            $paymentAmount = round(floatval($request->payment_amount), 2);
-            $isFullyPaid = $paymentAmount >= $invoiceTotalAmount;
+            $paymentResult = $paymentService->recordPayment($invoice->fresh(), [
+                'appointment_id' => $appointment->id,
+                'user_id' => $appointment->customer_id,
+                'tran_date' => Carbon::now(),
+                'amount' => round(floatval($request->payment_amount), 2),
+                'payment_method' => $request->payment_method,
+                'notes' => $request->payment_notes,
+            ]);
 
-            if ($isFullyPaid) {
-                $invoice->status = 'paid';
-                $invoice->paid_at = $request->paid_at ? Carbon::parse($request->paid_at) : Carbon::now();
-            } else {
-                $invoice->status = in_array($currentInvoiceStatus, ['draft', 'sent'], true)
-                    ? 'sent'
-                    : ($currentInvoiceStatus ?: 'sent');
-                $invoice->paid_at = null;
+            $paymentSummary = $paymentResult['summary'];
+            $remainingBalance = round(floatval($paymentSummary['balance_due'] ?? 0), 2);
+
+            if ($paymentResult['created']) {
+                $paymentService->createAdminPaymentNotifications($invoice->fresh(), $paymentResult['transaction'], $paymentSummary);
             }
-            $invoice->save();
 
-            $transaction = new Transaction;
-            $transaction->appointment_id = $appointment->id;
-            $transaction->invoice_id = $invoice->id;
-            $transaction->user_id = $appointment->customer_id;
-            $transaction->tran_date = $invoice->paid_at ?: Carbon::now();
-            $transaction->amount = $paymentAmount;
-            $transaction->payment_method = $request->payment_method;
-            $transaction->notes = $request->payment_notes;
-            $transaction->save();
+            $transactionPayload = [
+                'id' => $paymentResult['transaction']->id,
+                'amount' => round(floatval($paymentResult['transaction']->amount ?? 0), 2),
+                'payment_method' => $paymentResult['transaction']->payment_method,
+                'payment_method_label' => ucfirst(strtolower((string) ($paymentResult['transaction']->payment_method ?? 'Payment'))),
+                'tran_date' => optional($paymentResult['transaction']->tran_date)->format('Y-m-d H:i:s'),
+                'notes' => $paymentResult['transaction']->notes,
+            ];
 
-            $remainingBalance = max(0, round($invoiceTotalAmount - $paymentAmount, 2));
-
-            appointment_audit_log($appointment->id, $isFullyPaid
+            appointment_audit_log($appointment->id, ($paymentSummary['status'] ?? '') === 'paid'
                 ? "Invoice marked as paid. Invoice #{$invoice->invoice_number}."
                 : "Invoice payment recorded with remaining balance. Invoice #{$invoice->invoice_number}.");
+        }
+
+        if ($action === 'send') {
+            $sendAmount = round(floatval($paymentSummary['balance_due'] ?? 0), 2);
+            if ($sendAmount > 0) {
+                // Reuse existing pending/processing payment link for this invoice if present
+                $paymentLink = \App\Models\PaymentLink::where('invoice_id', $invoice->id)
+                    ->whereIn('status', ['pending', 'processing'])
+                    ->latest()
+                    ->first();
+
+                if ($paymentLink) {
+                    $paymentLink->amount = $sendAmount;
+                    $paymentLink->currency = 'usd';
+                    $paymentLink->expires_at = now()->addDays(30);
+                    $paymentLink->save();
+                } else {
+                    $paymentLink = createPaymentLink($invoice, $appointment, $sendAmount);
+                }
+            }
         }
 
         $emailFailed = false;
@@ -4367,7 +4375,9 @@ class AppointmentController extends Controller
         }
 
         $responseMessage = $action === 'send'
-            ? 'Invoice saved and sent successfully. <br>Payment link sent by email. Please ask the customer to complete payment using the link.'
+            ? ($paymentLink
+                ? 'Invoice saved and sent successfully. <br>Payment link sent by email. Please ask the customer to complete payment using the link.'
+                : 'Invoice saved and sent successfully.')
             : (($action === 'pay' && $request->payment_amount && $request->payment_method)
                 ? ($remainingBalance > 0
                     ? 'Invoice saved and partial payment recorded successfully. Remaining balance: $' . number_format($remainingBalance, 2) . '.'
@@ -4384,7 +4394,9 @@ class AppointmentController extends Controller
             'email_failed' => $emailFailed,
             'invoice_id' => $invoice->id,
             'invoice_total' => $invoiceTotalAmount,
-            'remaining_balance' => $remainingBalance
+            'remaining_balance' => $remainingBalance,
+            'payment_summary' => $paymentSummary,
+            'transaction' => $transactionPayload,
         ]);
     }
 
@@ -4431,6 +4443,7 @@ class AppointmentController extends Controller
         $stateTaxRate = isBoardingService($appointment->service) ? floatval(config('billing.state_tax_rate', 7)) : 0;
         $stateTaxAmount = round($subtotalAmount * ($stateTaxRate / 100), 2);
         $totalAmount = $subtotalAmount + $stateTaxAmount;
+        $paymentSummary = app(InvoicePaymentService::class)->buildSummary($invoice);
 
         $paymentLinkUrl = null;
         if (is_string($paymentLinkOrUrl) && !empty($paymentLinkOrUrl)) {
@@ -4465,6 +4478,10 @@ class AppointmentController extends Controller
             'late_checkout_daycare_fee' => 0,
             'total' => $totalAmount,
             'total_amount' => $totalAmount,
+            'online_payment' => round(floatval($paymentSummary['online_payment'] ?? 0), 2),
+            'in_person_payment' => round(floatval($paymentSummary['in_person_payment'] ?? 0), 2),
+            'payments_received' => round(floatval($paymentSummary['payments_received'] ?? 0), 2),
+            'balance_due' => round(floatval($paymentSummary['balance_due'] ?? $totalAmount), 2),
             'payment_link_url' => $paymentLinkUrl,
         ];
 

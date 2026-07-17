@@ -1719,9 +1719,61 @@
                         <td id="invoice_state_tax_amount">$0.00</td>
                         <td></td>
                       </tr>
-                      <tr>
+                      <tr style="border-bottom: 3px solid lightgray;">
                         <td colspan="2" class="font-medium text-end" width="66%">Total Amount:</td>
                         <td id="grand_total_amount">$0.00</td>
+                        <td></td>
+                      </tr>
+                      @php
+                        $invoicePaymentSummary = $paymentSummary ?? [
+                          'online_payment' => 0,
+                          'in_person_payment' => 0,
+                          'payments_received' => 0,
+                          'balance_due' => 0,
+                          'status' => strtolower((string) ($invoice->status ?? 'draft')),
+                        ];
+                        $invoiceStatusValue = strtolower((string) ($invoicePaymentSummary['status'] ?? 'draft'));
+                        $onlinePaymentAmount = floatval($invoicePaymentSummary['online_payment'] ?? 0);
+                        $inPersonPaymentAmount = floatval($invoicePaymentSummary['in_person_payment'] ?? 0);
+                        $shouldShowInvoicePaymentSummary = $invoice
+                          && ($invoiceStatusValue !== 'draft' || floatval($invoicePaymentSummary['payments_received'] ?? 0) > 0);
+                        $invoiceStatusLabel = match ($invoiceStatusValue) {
+                          'paid' => 'Paid',
+                          'partially_paid' => 'Partially Paid',
+                          'sent' => 'Sent',
+                          'void' => 'Void',
+                          'finalized' => 'Finalized',
+                          default => 'Draft',
+                        };
+                        $invoiceStatusBadgeClass = match ($invoiceStatusValue) {
+                          'paid' => 'badge-success',
+                          'partially_paid' => 'badge-warning',
+                          'sent' => 'badge-info',
+                          'void' => 'badge-error',
+                          'finalized' => 'badge-secondary',
+                          default => 'badge-ghost',
+                        };
+                      @endphp
+                      <tr id="invoice_payment_summary_row_online" class="border-t {{ $shouldShowInvoicePaymentSummary && $onlinePaymentAmount > 0 ? '' : 'hidden' }}">
+                        <td colspan="2" class="font-medium text-end" width="66%">Online Payment:</td>
+                        <td id="online_payment_amount">${{ number_format((float) ($invoicePaymentSummary['online_payment'] ?? 0), 2) }}</td>
+                        <td></td>
+                      </tr>
+                      <tr id="invoice_payment_summary_row_in_person" class="{{ $shouldShowInvoicePaymentSummary && $inPersonPaymentAmount > 0 ? '' : 'hidden' }}">
+                        <td colspan="2" class="font-medium text-end" width="66%">In-Person Payment:</td>
+                        <td id="in_person_payment_amount">${{ number_format((float) ($invoicePaymentSummary['in_person_payment'] ?? 0), 2) }}</td>
+                        <td></td>
+                      </tr>
+                      <tr id="invoice_payment_summary_row_balance" class="{{ $shouldShowInvoicePaymentSummary ? '' : 'hidden' }}">
+                        <td colspan="2" class="font-medium text-end" width="66%">Balance Due:</td>
+                        <td id="balance_due_amount">${{ number_format((float) ($invoicePaymentSummary['balance_due'] ?? 0), 2) }}</td>
+                        <td></td>
+                      </tr>
+                      <tr id="invoice_payment_summary_row_status" class="{{ $shouldShowInvoicePaymentSummary ? '' : 'hidden' }}">
+                        <td colspan="2" class="font-medium text-end" width="66%">Invoice Status:</td>
+                        <td id="invoice_status_cell">
+                          <span id="invoice_status_badge" class="badge badge-soft badge-sm {{ $invoiceStatusBadgeClass }}">{{ $invoiceStatusLabel }}</span>
+                        </td>
                         <td></td>
                       </tr>
                     </tfoot>
@@ -5749,7 +5801,7 @@
 
   let itemIdx = 0;
   const invoiceDiscountRules = @json($invoiceDiscountRules ?? []);
-  const invoiceDefaultStatus = @json($invoice?->status ?? 'draft');
+  let invoiceRuntimeStatus = @json($paymentSummary['status'] ?? $invoice?->status ?? 'draft');
   const invoiceIssuedAt = @json(optional($invoice?->issued_at)->format('Y-m-d H:i:s'));
   const invoicePaidAt = @json(optional($invoice?->paid_at)->format('Y-m-d H:i:s'));
   const invoiceExists = {{ $invoice ? 'true' : 'false' }};
@@ -6145,7 +6197,7 @@
     const effectiveIssuedAt = overrides.issuedAt || invoiceIssuedAt;
     const effectivePaidAt = overrides.paidAt || invoicePaidAt;
     const effectiveInvoiceExists = typeof overrides.invoiceExists === 'boolean' ? overrides.invoiceExists : invoiceExists;
-    const effectiveInvoiceStatus = (overrides.invoiceStatus || invoiceDefaultStatus || '').toLowerCase();
+    const effectiveInvoiceStatus = (overrides.invoiceStatus || invoiceRuntimeStatus || '').toLowerCase();
 
     if (normalizedStatus === 'paid') {
       return toMomentOrNow(effectivePaidAt);
@@ -6233,7 +6285,7 @@
       }
     });
 
-    const effectiveStatus = statusOverride || invoiceDefaultStatus;
+    const effectiveStatus = statusOverride || invoiceRuntimeStatus;
     const discountRow = $('#invoice_discount_row');
     const canRenderDiscount = discountRow.length > 0;
 
@@ -6342,6 +6394,57 @@
     }
   }
 
+  function formatInvoiceCurrency(value) {
+    const amount = Number(value || 0);
+    return '$' + amount.toFixed(2);
+  }
+
+  function resolveInvoiceStatusMeta(status) {
+    const normalizedStatus = String(status || 'draft').toLowerCase();
+
+    switch (normalizedStatus) {
+      case 'paid':
+        return { label: 'Paid', classes: 'badge-success' };
+      case 'partially_paid':
+        return { label: 'Partially Paid', classes: 'badge-warning' };
+      case 'sent':
+        return { label: 'Sent', classes: 'badge-info' };
+      case 'void':
+        return { label: 'Void', classes: 'badge-error' };
+      case 'finalized':
+        return { label: 'Finalized', classes: 'badge-secondary' };
+      default:
+        return { label: 'Draft', classes: 'badge-ghost' };
+    }
+  }
+
+  function applyInvoicePaymentSummary(summary) {
+    if (!summary) {
+      return;
+    }
+
+    const shouldShowSummary = String(summary.status || 'draft').toLowerCase() !== 'draft'
+      || parseFloat(summary.payments_received || 0) > 0;
+    const onlinePayment = parseFloat(summary.online_payment || 0);
+    const inPersonPayment = parseFloat(summary.in_person_payment || 0);
+
+    $('#invoice_payment_summary_row_online').toggleClass('hidden', !(shouldShowSummary && onlinePayment > 0));
+    $('#invoice_payment_summary_row_in_person').toggleClass('hidden', !(shouldShowSummary && inPersonPayment > 0));
+    $('#invoice_payment_summary_row_balance').toggleClass('hidden', !shouldShowSummary);
+    $('#invoice_payment_summary_row_status').toggleClass('hidden', !shouldShowSummary);
+
+    $('#online_payment_amount').text(formatInvoiceCurrency(onlinePayment));
+    $('#in_person_payment_amount').text(formatInvoiceCurrency(inPersonPayment));
+    $('#balance_due_amount').text(formatInvoiceCurrency(parseFloat(summary.balance_due || 0)));
+
+    const statusMeta = resolveInvoiceStatusMeta(summary.status);
+    $('#invoice_status_badge')
+      .attr('class', 'badge badge-soft badge-sm ' + statusMeta.classes)
+      .text(statusMeta.label);
+
+    invoiceRuntimeStatus = String(summary.status || invoiceRuntimeStatus || 'draft').toLowerCase();
+  }
+
   function renderPaymentMethodOptions(status) {
     const normalizedStatus = (status || '').toLowerCase();
     const paymentMethod = $('#payment_method');
@@ -6384,10 +6487,10 @@
     const email = $('#email').val();
     const notes = $('#invoice_notes').val();
     const items = collectInvoiceItems();
-    const status = action === 'send' ? 'sent' : (invoiceDefaultStatus || 'draft');
+    const status = action === 'send' ? 'sent' : (invoiceRuntimeStatus || 'draft');
     const totals = updateTotals(status, {
       invoiceExists,
-      invoiceStatus: invoiceDefaultStatus
+      invoiceStatus: invoiceRuntimeStatus
     });
 
     if (!invoice_number || !first_name || !last_name || !email) {
@@ -6435,8 +6538,13 @@
     }
   }
 
-  function openPaymentModalForInvoice(submission) {
-    $('#payment_amount').val(submission.totals.totalAmount.toFixed(2));
+  function openPaymentModalForInvoice(submission, paymentSummary = null) {
+    const balanceDue = paymentSummary && paymentSummary.balance_due !== undefined
+      ? parseFloat(paymentSummary.balance_due || 0)
+      : parseFloat(submission.totals.totalAmount || 0);
+    const payableAmount = balanceDue > 0 ? balanceDue : parseFloat(submission.totals.totalAmount || 0);
+
+    $('#payment_amount').val(payableAmount.toFixed(2));
     renderPaymentMethodOptions('paid');
     $('#payment_notes').val('');
     syncPaymentModalSummary(submission.totals, invoiceCustomerFullName);
@@ -6450,7 +6558,8 @@
       status: submission.status,
       discount_amount: submission.discount_amount,
       discount_title: submission.discount_title,
-      invoice_total: submission.totals.totalAmount
+      invoice_total: submission.totals.totalAmount,
+      balance_due: balanceDue
     };
 
     payment_modal.showModal();
@@ -6485,10 +6594,19 @@
         toggleInvoiceButtonLoading(buttonId, false);
 
         if (response.status) {
+          if (response.payment_summary) {
+            applyInvoicePaymentSummary(response.payment_summary);
+          }
           updateDetailSectionSummaryFromInvoice(submission.items, submission.totals);
 
           if (options.openPaymentModal) {
-            openPaymentModalForInvoice(submission);
+            if (response.payment_summary && parseFloat(response.payment_summary.balance_due || 0) <= 0) {
+              $('#success_message').html('Invoice is already fully paid.');
+              success_modal.showModal();
+              return;
+            }
+
+            openPaymentModalForInvoice(submission, response.payment_summary || null);
             return;
           }
 
@@ -6575,6 +6693,9 @@
         $('#confirm_payment_btn').prop('disabled', false);
 
         if (response.status) {
+          if (response.payment_summary) {
+            applyInvoicePaymentSummary(response.payment_summary);
+          }
           payment_modal.close();
           delete window.pendingInvoiceData;
           $('#success_message').text(response.message || 'Invoice saved and payment recorded successfully!');

@@ -4,12 +4,11 @@ namespace App\Http\Controllers\web;
 
 use App\Models\PaymentLink;
 use App\Models\Invoice;
-use App\Models\Transaction;
 use Illuminate\Http\Request;
 use App\Http\Controllers\Controller;
+use App\Services\InvoicePaymentService;
 use Stripe\PaymentIntent;
 use Stripe\Stripe;
-use Carbon\Carbon;
 
 class PaymentController extends Controller
 {
@@ -35,12 +34,15 @@ class PaymentController extends Controller
             return view('payment.error', ['message' => 'Invoice or appointment not found.']);
         }
 
+        $paymentSummary = app(InvoicePaymentService::class)->buildSummary($invoice);
+
         $stripePublicKey = config('services.stripe.public_key');
 
         return view('payment.page', [
             'paymentLink' => $paymentLink,
             'invoice' => $invoice,
             'appointment' => $appointment,
+            'paymentSummary' => $paymentSummary,
             'stripePublicKey' => $stripePublicKey,
             'clientSecret' => null,
         ]);
@@ -50,6 +52,7 @@ class PaymentController extends Controller
     {
         $request->validate([
             'token' => 'required|string',
+            'amount' => 'nullable|numeric|min:0.5',
         ]);
 
         $paymentLink = validatePaymentToken($request->token);
@@ -61,26 +64,59 @@ class PaymentController extends Controller
             ], 400);
         }
 
+        $invoice = $paymentLink->invoice;
+        if (!$invoice) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Invoice not found for this payment link.',
+            ], 404);
+        }
+
+        $paymentService = app(InvoicePaymentService::class);
+        $summary = $paymentService->buildSummary($invoice);
+        $balanceDue = round(floatval($summary['balance_due'] ?? 0), 2);
+
+        if ($balanceDue <= 0) {
+            return response()->json([
+                'status' => false,
+                'message' => 'This invoice has already been paid in full.',
+            ], 422);
+        }
+
+        $requestedAmount = $request->filled('amount')
+            ? round(floatval($request->amount), 2)
+            : $balanceDue;
+
+        if ($requestedAmount <= 0 || $requestedAmount > $balanceDue) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Payment amount must be greater than zero and cannot exceed the current balance due.',
+            ], 422);
+        }
+
         try {
             $intent = PaymentIntent::create([
-                'amount' => intval($paymentLink->amount * 100),
+                'amount' => intval(round($requestedAmount * 100)),
                 'currency' => $paymentLink->currency,
                 'payment_method_types' => ['card'],
                 'metadata' => [
                     'payment_link_id' => $paymentLink->id,
                     'invoice_id' => $paymentLink->invoice_id,
                     'appointment_id' => $paymentLink->appointment_id,
+                    'payment_amount' => number_format($requestedAmount, 2, '.', ''),
                 ],
             ]);
 
             $paymentLink->update([
                 'stripe_payment_intent_id' => $intent->id,
+                'amount' => $requestedAmount,
                 'status' => 'processing',
             ]);
 
             return response()->json([
                 'status' => true,
                 'clientSecret' => $intent->client_secret,
+                'amount' => $requestedAmount,
             ]);
         } catch (\Exception $e) {
             return response()->json([
@@ -117,11 +153,13 @@ class PaymentController extends Controller
                     'payment_method' => 'card',
                 ]);
 
-                $this->updateInvoiceAfterPayment($paymentLink);
+                $summary = $this->updateInvoiceAfterPayment($paymentLink, $intent);
 
                 return response()->json([
                     'status' => true,
                     'message' => 'Payment successful!',
+                    'payment_amount' => round(((float) ($intent->amount_received ?? 0)) / 100, 2),
+                    'payment_summary' => $summary,
                 ]);
             } else {
                 return response()->json([
@@ -137,37 +175,34 @@ class PaymentController extends Controller
         }
     }
 
-    private function updateInvoiceAfterPayment($paymentLink)
+    private function updateInvoiceAfterPayment($paymentLink, $paymentIntent): array
     {
         $invoice = $paymentLink->invoice;
         $appointment = $paymentLink->appointment;
 
         if (!$invoice || !$appointment) {
-            return;
+            return [];
         }
 
-        $invoice->status = 'paid';
-        $invoice->paid_at = now();
-        $invoice->save();
+        $paymentService = app(InvoicePaymentService::class);
+        $result = $paymentService->recordPayment($invoice, [
+            'appointment_id' => $appointment->id,
+            'user_id' => $appointment->customer_id,
+            'tran_date' => now(),
+            'amount' => round(((float) ($paymentIntent->amount_received ?? 0)) / 100, 2),
+            'payment_method' => 'card',
+            'stripe_transaction_id' => $paymentIntent->id,
+            'notes' => 'Stripe payment: ' . $paymentIntent->id,
+        ]);
 
-        $existingTransaction = Transaction::where('invoice_id', $invoice->id)
-            ->where('payment_method', 'card')
-            ->where('stripe_transaction_id', $paymentLink->stripe_transaction_id)
-            ->first();
-
-        if (!$existingTransaction) {
-            Transaction::create([
-                'appointment_id' => $appointment->id,
-                'invoice_id' => $invoice->id,
-                'user_id' => $appointment->customer_id,
-                'tran_date' => now(),
-                'amount' => $paymentLink->amount,
-                'payment_method' => 'card',
-                'stripe_transaction_id' => $paymentLink->stripe_transaction_id,
-                'notes' => 'Stripe payment: ' . $paymentLink->stripe_transaction_id,
-            ]);
+        if ($result['created']) {
+            $paymentService->createAdminPaymentNotifications($invoice->fresh(), $result['transaction'], $result['summary']);
         }
 
-        appointment_audit_log($appointment->id, "Payment received via Stripe for invoice #{$invoice->invoice_number}. Amount: \${$paymentLink->amount}");
+        $summary = $result['summary'];
+        $statusLabel = $summary['status'] === 'paid' ? 'Paid' : 'Partially Paid';
+        appointment_audit_log($appointment->id, "Payment received via Stripe for invoice #{$invoice->invoice_number}. Amount: \$" . number_format($result['transaction']->amount ?? 0, 2) . ". Status: {$statusLabel}.");
+
+        return $summary;
     }
 }

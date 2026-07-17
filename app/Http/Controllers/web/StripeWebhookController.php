@@ -3,9 +3,10 @@
 namespace App\Http\Controllers\web;
 
 use App\Http\Controllers\Controller;
+use App\Models\Invoice;
 use App\Models\Payout;
 use App\Models\PaymentLink;
-use App\Models\Transaction;
+use App\Services\InvoicePaymentService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
@@ -70,33 +71,26 @@ class StripeWebhookController extends Controller
                 : (is_array($paymentIntent->metadata) && isset($paymentIntent->metadata['invoice_id']) ? $paymentIntent->metadata['invoice_id'] : null);
 
             if ($invoiceId) {
-                $invoice = \App\Models\Invoice::find($invoiceId);
+                $invoice = Invoice::find($invoiceId);
                 if ($invoice) {
-                    // mark invoice as paid and create a transaction
-                    $invoice->status = 'paid';
-                    $invoice->paid_at = now();
-                    $invoice->save();
-
                     $appointment = $invoice->appointment;
 
-                    $existingTransaction = Transaction::where('invoice_id', $invoice->id)
-                        ->where('stripe_transaction_id', $paymentIntent->id)
-                        ->first();
+                    $paymentService = app(InvoicePaymentService::class);
+                    $result = $paymentService->recordPayment($invoice, [
+                        'appointment_id' => $appointment?->id,
+                        'user_id' => $appointment?->customer_id ?? $invoice->customer_id,
+                        'tran_date' => now(),
+                        'amount' => round(((float) ($paymentIntent->amount_received ?? 0)) / 100, 2),
+                        'payment_method' => 'card',
+                        'stripe_transaction_id' => $paymentIntent->id,
+                        'notes' => 'Stripe webhook payment (metadata): ' . $paymentIntent->id,
+                    ]);
 
-                    if (!$existingTransaction) {
-                        Transaction::create([
-                            'appointment_id' => $appointment?->id,
-                            'invoice_id' => $invoice->id,
-                            'user_id' => $appointment?->customer_id ?? $invoice->customer_id,
-                            'tran_date' => now(),
-                            'amount' => $invoice->total_amount ?? 0,
-                            'payment_method' => 'card',
-                            'stripe_transaction_id' => $paymentIntent->id,
-                            'notes' => 'Stripe webhook payment (metadata): ' . $paymentIntent->id,
-                        ]);
+                    if ($result['created']) {
+                        $paymentService->createAdminPaymentNotifications($invoice->fresh(), $result['transaction'], $result['summary']);
                     }
 
-                    appointment_audit_log($appointment?->id, "Stripe webhook: Payment confirmed for invoice #{$invoice->invoice_number}. Amount: \\${$invoice->total_amount}");
+                    appointment_audit_log($appointment?->id, "Stripe webhook: Payment confirmed for invoice #{$invoice->invoice_number}. Amount: \$" . number_format($result['transaction']->amount ?? 0, 2) . '.');
 
                     Log::info('Payment processed via webhook using metadata fallback', [
                         'invoice_id' => $invoice->id,
@@ -123,26 +117,16 @@ class StripeWebhookController extends Controller
             return;
         }
 
-        $invoice->status = 'paid';
-        $invoice->paid_at = now();
-        $invoice->save();
-
-        $existingTransaction = Transaction::where('invoice_id', $invoice->id)
-            ->where('stripe_transaction_id', $paymentIntent->id)
-            ->first();
-
-        if (!$existingTransaction) {
-            Transaction::create([
-                'appointment_id' => $appointment->id,
-                'invoice_id' => $invoice->id,
-                'user_id' => $appointment->customer_id,
-                'tran_date' => now(),
-                'amount' => $paymentLink->amount,
-                'payment_method' => 'card',
-                'stripe_transaction_id' => $paymentIntent->id,
-                'notes' => 'Stripe webhook payment: ' . $paymentIntent->id,
-            ]);
-        }
+        $paymentService = app(InvoicePaymentService::class);
+        $result = $paymentService->recordPayment($invoice, [
+            'appointment_id' => $appointment->id,
+            'user_id' => $appointment->customer_id,
+            'tran_date' => now(),
+            'amount' => round(((float) ($paymentIntent->amount_received ?? 0)) / 100, 2),
+            'payment_method' => 'card',
+            'stripe_transaction_id' => $paymentIntent->id,
+            'notes' => 'Stripe webhook payment: ' . $paymentIntent->id,
+        ]);
 
         $paymentLink->update([
             'status' => 'completed',
@@ -151,7 +135,11 @@ class StripeWebhookController extends Controller
             'payment_method' => 'card',
         ]);
 
-        appointment_audit_log($appointment->id, "Stripe webhook: Payment confirmed for invoice #{$invoice->invoice_number}. Amount: \${$paymentLink->amount}");
+        if ($result['created']) {
+            $paymentService->createAdminPaymentNotifications($invoice->fresh(), $result['transaction'], $result['summary']);
+        }
+
+        appointment_audit_log($appointment->id, "Stripe webhook: Payment confirmed for invoice #{$invoice->invoice_number}. Amount: \$" . number_format($result['transaction']->amount ?? 0, 2) . '.');
 
         Log::info('Payment successfully processed via webhook', [
             'payment_link_id' => $paymentLink->id,

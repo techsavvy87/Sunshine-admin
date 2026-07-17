@@ -22,6 +22,7 @@ use App\Models\Discount;
 use App\Models\PetBehavior;
 use App\Models\IncidentReport;
 use App\Models\Kennel;
+use App\Services\InvoicePaymentService;
 use Illuminate\Support\Collection;
 use Carbon\Carbon;
 use Barryvdh\DomPDF\Facade\Pdf;
@@ -630,6 +631,16 @@ class DashboardController extends Controller
         }
 
         $invoice = Invoice::where('appointment_id', $appointment->id)->first();
+        $paymentSummary = null;
+        $invoiceTransactions = collect();
+
+        if ($invoice) {
+            $paymentSummary = app(InvoicePaymentService::class)->buildSummary($invoice);
+            $invoiceTransactions = $invoice->transactions()
+                ->latest('tran_date')
+                ->latest('id')
+                ->get();
+        }
 
         $additionalServices = Service::where('id', '!=', $appointment->service_id)->where('status', 'active')->get();
 
@@ -668,7 +679,7 @@ class DashboardController extends Controller
         $assignmentLabel = $assignmentLocation['label'];
         $staySummary = $this->buildCheckoutStaySummary($appointment, $checkedIn);
 
-        return view('dashboard.appointment', compact('appointment', 'staffs', 'checkedIn', 'process', 'checkout', 'invoice', 'additionalServices', 'lastAppointmentRatings', 'invoiceDiscountRules', 'petBehaviors', 'dbEstimatedPrice', 'assignmentLabel', 'staySummary', 'lateCheckoutDaycareFeeDisplay'));
+        return view('dashboard.appointment', compact('appointment', 'staffs', 'checkedIn', 'process', 'checkout', 'invoice', 'additionalServices', 'lastAppointmentRatings', 'invoiceDiscountRules', 'petBehaviors', 'dbEstimatedPrice', 'assignmentLabel', 'staySummary', 'lateCheckoutDaycareFeeDisplay', 'paymentSummary', 'invoiceTransactions'));
     }
 
     private function buildCheckoutStaySummary(Appointment $appointment, ?Checkin $checkin): array

@@ -16,6 +16,8 @@
             <td>
               @if($invoice->status === 'paid')
                 <div class="badge badge-soft badge-success badge-sm">Paid</div>
+              @elseif($invoice->status === 'partially_paid')
+                <div class="badge badge-soft badge-warning badge-sm">Partially Paid</div>
               @else
                 <div class="badge badge-soft badge-info badge-sm">Sent</div>
               @endif

@@ -40,4 +40,9 @@ class Invoice extends Model
     {
         return $this->hasMany(PaymentLink::class, 'invoice_id', 'id');
     }
+
+    public function transactions()
+    {
+        return $this->hasMany(Transaction::class, 'invoice_id', 'id');
+    }
 }

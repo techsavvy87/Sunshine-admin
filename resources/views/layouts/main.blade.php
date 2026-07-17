@@ -461,6 +461,7 @@
                   arr.forEach(function(entry) {
                     var it = entry.item;
                     var avatar = it.sender?.profile?.avatar_img ? "{{ asset('storage/profiles/') }}/" + it.sender?.profile?.avatar_img : '/images/default-user-avatar.png';
+                    var title = it.title || 'Notification';
                     var message = it.message || it.title || 'Notification';
                     var timeStr = relativeTimeFrom(entry.created);
                     var payload = encodeURIComponent(JSON.stringify(it));
@@ -470,7 +471,8 @@
                         +   '>'
                         +   '<img class="bg-base-200 mask mask-squircle size-10 p-0.5" alt="" src="' + avatar + '" />'
                         +   '<div class="grow">'
-                        +     '<p class="text-sm leading-tight">' + message + '</p>'
+                        +     '<p class="text-sm font-medium leading-tight">' + title + '</p>'
+                        +     '<p class="text-base-content/70 text-xs leading-tight mt-1">' + message + '</p>'
                         +     '<p class="text-base-content/60 text-end text-xs leading-tight">' + timeStr + '</p>'
                         +   '</div>'
                         + '</div>';

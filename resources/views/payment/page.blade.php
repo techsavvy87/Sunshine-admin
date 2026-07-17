@@ -23,8 +23,12 @@
     }
 
     $lineSubtotal = round((float) $invoiceItems->sum(fn ($item) => (float) ($item->price ?? 0)), 2);
-    $discountAmount = round((float) ($invoice->discount_amount ?? 0), 2);
-    $totalAmount = round((float) ($paymentLink->amount ?? 0), 2);
+    $discountAmount = round((float) ($paymentSummary['discount_amount'] ?? $invoice->discount_amount ?? 0), 2);
+    $totalAmount = round((float) ($paymentSummary['total_amount'] ?? $paymentLink->amount ?? 0), 2);
+    $onlinePayment = round((float) ($paymentSummary['online_payment'] ?? 0), 2);
+    $inPersonPayment = round((float) ($paymentSummary['in_person_payment'] ?? 0), 2);
+    $paymentsReceived = round((float) ($paymentSummary['payments_received'] ?? 0), 2);
+    $balanceDue = round((float) ($paymentSummary['balance_due'] ?? $totalAmount), 2);
     $extraChargesAmount = round(max(0, $totalAmount - ($lineSubtotal - $discountAmount)), 2);
     $dueDateLabel = !empty($invoice->due_date) ? \Carbon\Carbon::parse($invoice->due_date)->format('M j, Y') : null;
     $issuedDateLabel = !empty($invoice->issued_at) ? \Carbon\Carbon::parse($invoice->issued_at)->format('M j, Y g:i A') : null;
@@ -182,8 +186,8 @@
                                     <p class="mt-3 max-w-2xl text-sm leading-6 text-slate-600 sm:text-base">Review your invoice and complete payment securely.</p>
                                 </div>
                                 <div class="detail-chip px-4 py-3 text-right shadow-sm">
-                                    <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Amount due</p>
-                                    <p class="mt-1 text-3xl font-bold text-slate-900">${{ number_format($totalAmount, 2) }}</p>
+                                    <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Balance due</p>
+                                    <p id="amount-due-display" class="mt-1 text-3xl font-bold text-slate-900">${{ number_format($balanceDue, 2) }}</p>
                                 </div>
                             </div>
 
@@ -273,6 +277,22 @@
                                         <span>Total amount</span>
                                         <span>${{ number_format($totalAmount, 2) }}</span>
                                     </div>
+                                    <div class="flex items-center justify-between text-sm text-slate-200">
+                                        <span>Online payment</span>
+                                        <span id="summary-online-payment">${{ number_format($onlinePayment, 2) }}</span>
+                                    </div>
+                                    <div class="flex items-center justify-between text-sm text-slate-200">
+                                        <span>In-person payment</span>
+                                        <span id="summary-in-person-payment">${{ number_format($inPersonPayment, 2) }}</span>
+                                    </div>
+                                    <div class="flex items-center justify-between text-sm text-slate-200">
+                                        <span>Payments received</span>
+                                        <span id="summary-payments-received">${{ number_format($paymentsReceived, 2) }}</span>
+                                    </div>
+                                    <div class="flex items-center justify-between text-sm font-semibold text-white">
+                                        <span>Balance due</span>
+                                        <span id="summary-balance-due">${{ number_format($balanceDue, 2) }}</span>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -289,7 +309,7 @@
                                     </div>
                                     <div class="rounded-2xl border border-blue-100 bg-white px-4 py-3 text-right shadow-sm">
                                         <p class="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Pay today</p>
-                                        <p class="mt-1 text-2xl font-bold text-slate-900">${{ number_format($totalAmount, 2) }}</p>
+                                        <p id="pay-today-amount" class="mt-1 text-2xl font-bold text-slate-900">${{ number_format($balanceDue, 2) }}</p>
                                     </div>
                                 </div>
                             </div>
@@ -301,7 +321,13 @@
 
                                 <div class="rounded-[20px] border border-blue-100 bg-blue-50/70 p-4 text-sm text-blue-900">
                                     <p class="font-semibold">Before you pay</p>
-                                    <p class="mt-1 text-blue-800/80">Please confirm your invoice details on the left, then submit your card securely through Stripe.</p>
+                                    <p class="mt-1 text-blue-800/80">Please confirm your invoice details on the left, choose how much you want to pay today, then submit your card securely through Stripe.</p>
+                                </div>
+
+                                <div class="space-y-3">
+                                    <label for="payment-amount" class="block text-sm font-semibold text-slate-700">Payment amount</label>
+                                    <input id="payment-amount" type="number" min="0.50" step="0.01" max="{{ number_format($balanceDue, 2, '.', '') }}" value="{{ number_format($balanceDue, 2, '.', '') }}" class="input input-bordered w-full text-base font-semibold" />
+                                    <p class="text-xs text-slate-500">You can pay any amount up to the current balance due of ${{ number_format($balanceDue, 2) }}.</p>
                                 </div>
 
                                 <div class="space-y-3">
@@ -311,7 +337,7 @@
                                 </div>
 
                                 <button id="submit-button" type="submit" class="inline-flex w-full items-center justify-center rounded-2xl bg-slate-900 px-5 py-4 text-base font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400">
-                                    <span id="button-text">Pay ${{ number_format($paymentLink->amount, 2) }}</span>
+                                    <span id="button-text">Pay ${{ number_format($balanceDue, 2) }}</span>
                                     <span id="spinner" class="hidden ml-3 inline-flex items-center gap-3">
                                         <span class="spinner-dot"></span>
                                         Processing
@@ -345,7 +371,7 @@
                     <div class="mt-8 grid gap-4 sm:grid-cols-2">
                         <div class="detail-chip p-5 shadow-sm">
                             <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Paid amount</p>
-                            <p class="mt-2 text-3xl font-bold text-slate-900">${{ number_format($totalAmount, 2) }}</p>
+                            <p id="paid-amount-display" class="mt-2 text-3xl font-bold text-slate-900">${{ number_format($balanceDue, 2) }}</p>
                         </div>
                         <div class="detail-chip p-5 shadow-sm">
                             <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Invoice reference</p>
@@ -364,7 +390,7 @@
 
                     <div class="mt-8 rounded-[24px] border border-emerald-200 bg-emerald-50 p-5 text-emerald-900">
                         <p class="font-semibold">Next step</p>
-                        <p class="mt-2 text-sm leading-6">A receipt-worthy confirmation has been recorded for your invoice. If you need any additional help with your appointment or billing, our team can assist.</p>
+                        <p id="payment-outcome-text" class="mt-2 text-sm leading-6">A receipt-worthy confirmation has been recorded for your invoice. If you need any additional help with your appointment or billing, our team can assist.</p>
                     </div>
                 </div>
             </section>
@@ -379,12 +405,87 @@
         const paymentMessage = document.getElementById('payment-message');
         const paymentShell = document.getElementById('payment-shell');
         const paymentDateTime = document.getElementById('payment-date-time');
+        const paymentAmountInput = document.getElementById('payment-amount');
+        const amountDueDisplay = document.getElementById('amount-due-display');
+        const payTodayAmount = document.getElementById('pay-today-amount');
+        const summaryOnlinePayment = document.getElementById('summary-online-payment');
+        const summaryInPersonPayment = document.getElementById('summary-in-person-payment');
+        const summaryPaymentsReceived = document.getElementById('summary-payments-received');
+        const summaryBalanceDue = document.getElementById('summary-balance-due');
+        const paidAmountDisplay = document.getElementById('paid-amount-display');
+        const paymentOutcomeText = document.getElementById('payment-outcome-text');
         const token = document.getElementById('payment-token').value;
         let paymentElement;
         let elements;
+        let currentRequestedAmount = parseFloat(paymentAmountInput?.value || '0');
 
-        async function initializePayment() {
+        function formatCurrency(amount) {
+            const value = Number.isFinite(Number(amount)) ? Number(amount) : 0;
+            return '$' + value.toFixed(2);
+        }
+
+        function getRequestedPaymentAmount() {
+            const max = parseFloat(paymentAmountInput?.max || '0') || 0;
+            const raw = parseFloat(paymentAmountInput?.value || '0') || 0;
+            return Math.max(0.5, Math.min(raw, max || raw));
+        }
+
+        function syncRequestedAmountUi(amount) {
+            currentRequestedAmount = amount;
+            if (paymentAmountInput) {
+                paymentAmountInput.value = amount.toFixed(2);
+            }
+            if (payTodayAmount) {
+                payTodayAmount.textContent = formatCurrency(amount);
+            }
+            const buttonText = document.getElementById('button-text');
+            if (buttonText) {
+                buttonText.textContent = 'Pay ' + formatCurrency(amount);
+            }
+        }
+
+        function applyPaymentSummary(summary) {
+            if (!summary) {
+                return;
+            }
+
+            const onlinePayment = parseFloat(summary.online_payment || 0);
+            const inPersonPayment = parseFloat(summary.in_person_payment || 0);
+            const paymentsReceived = parseFloat(summary.payments_received || 0);
+            const balanceDue = parseFloat(summary.balance_due || 0);
+
+            if (amountDueDisplay) {
+                amountDueDisplay.textContent = formatCurrency(balanceDue);
+            }
+            if (summaryOnlinePayment) {
+                summaryOnlinePayment.textContent = formatCurrency(onlinePayment);
+            }
+            if (summaryInPersonPayment) {
+                summaryInPersonPayment.textContent = formatCurrency(inPersonPayment);
+            }
+            if (summaryPaymentsReceived) {
+                summaryPaymentsReceived.textContent = formatCurrency(paymentsReceived);
+            }
+            if (summaryBalanceDue) {
+                summaryBalanceDue.textContent = formatCurrency(balanceDue);
+            }
+            if (paymentAmountInput) {
+                paymentAmountInput.max = balanceDue.toFixed(2);
+                paymentAmountInput.value = balanceDue.toFixed(2);
+            }
+            syncRequestedAmountUi(Math.max(balanceDue, 0.5));
+        }
+
+        async function initializePayment(amount = null) {
             submitButton.disabled = true;
+            paymentErrors.textContent = '';
+
+            const requestedAmount = amount ?? getRequestedPaymentAmount();
+            syncRequestedAmountUi(requestedAmount);
+
+            if (paymentElement) {
+                paymentElement.unmount();
+            }
 
             try {
                 const response = await fetch('{{ route('payment.create-intent') }}', {
@@ -393,7 +494,7 @@
                         'Content-Type': 'application/json',
                         'X-CSRF-Token': document.querySelector('input[name="_token"]').value,
                     },
-                    body: JSON.stringify({ token: token }),
+                    body: JSON.stringify({ token: token, amount: requestedAmount }),
                 });
 
                 const data = await response.json();
@@ -466,6 +567,16 @@
                     const confirmData = await confirmResponse.json();
 
                     if (confirmData.status) {
+                        applyPaymentSummary(confirmData.payment_summary || null);
+                        if (paidAmountDisplay) {
+                            paidAmountDisplay.textContent = formatCurrency(confirmData.payment_amount || currentRequestedAmount);
+                        }
+                        if (paymentOutcomeText) {
+                            const remaining = parseFloat(confirmData.payment_summary?.balance_due || 0);
+                            paymentOutcomeText.textContent = remaining > 0
+                                ? 'Your payment has been recorded. Remaining balance: ' + formatCurrency(remaining) + '.'
+                                : 'Your invoice has been fully paid. Thank you.';
+                        }
                         if (paymentDateTime) {
                             paymentDateTime.textContent = new Intl.DateTimeFormat(undefined, {
                                 dateStyle: 'medium',
@@ -492,7 +603,12 @@
             }
         });
 
-        initializePayment();
+        paymentAmountInput?.addEventListener('change', function () {
+            initializePayment(getRequestedPaymentAmount());
+        });
+
+        syncRequestedAmountUi(getRequestedPaymentAmount());
+        initializePayment(getRequestedPaymentAmount());
     </script>
 </body>
 </html>

@@ -15,6 +15,7 @@ use App\Models\GroupClass;
 use App\Models\Package;
 use App\Models\CustomerPackage;
 use App\Models\PetProfile;
+use App\Services\InvoicePaymentService;
 use Carbon\Carbon;
 use Stripe;
 
@@ -64,7 +65,7 @@ class PaymentController extends Controller
     public function invoices(Request $request)
     {
         $invoices = Invoice::where('customer_id', Auth::id())
-                ->whereIn('status', ['sent', 'paid'])
+            ->whereIn('status', ['sent', 'partially_paid', 'paid'])
                 ->with(['appointment.pet', 'appointment.service'])
                 ->get();
 
@@ -449,17 +450,9 @@ class PaymentController extends Controller
             $transactionNote = 'Payment completed for the booked appointment.';
         }
 
-        // Update the invoice as paid
+        $invoice = null;
         if (isset($invoiceId)) {
             $invoice = Invoice::find($invoiceId);
-            if ($invoice) {
-                $invoice->paid_at = Carbon::now();
-                $invoice->status = 'paid';
-                $invoice->save();
-                if ($invoice->appointment_id && function_exists('appointment_audit_log')) {
-                    appointment_audit_log($invoice->appointment_id, "Invoice status changed to Paid. Invoice #{$invoice->invoice_number}.");
-                }
-            }
         }
 
         // If there are class IDs, create the appointments for each class's schedule
@@ -493,18 +486,38 @@ class PaymentController extends Controller
             $transactionNote = 'Payment completed for the purchased package.';
         }
 
-        // create a transaction
-        $transaction = new Transaction;
-        $transaction->appointment_id = $appointmentId;
-        $transaction->invoice_id = $invoiceId;
-        $transaction->user_id = Auth::id();
-        $transaction->tran_date = Carbon::now();
-        $transaction->amount = floatval($amount);
-        $transaction->payment_method = 'stripe';
-        $transaction->notes = $transactionNote;
-        $transaction->last_payment_id = $lastPaymentId;
+        if ($invoice) {
+            $paymentService = app(InvoicePaymentService::class);
+            $paymentResult = $paymentService->recordPayment($invoice, [
+                'appointment_id' => $appointmentId,
+                'user_id' => Auth::id(),
+                'tran_date' => Carbon::now(),
+                'amount' => floatval($amount),
+                'payment_method' => 'stripe',
+                'notes' => $transactionNote,
+                'last_payment_id' => $lastPaymentId,
+            ]);
 
-        $transaction->save();
+            if ($paymentResult['created']) {
+                $paymentService->createAdminPaymentNotifications($invoice->fresh(), $paymentResult['transaction'], $paymentResult['summary']);
+            }
+
+            if ($invoice->appointment_id && function_exists('appointment_audit_log')) {
+                $statusLabel = ($paymentResult['summary']['status'] ?? '') === 'paid' ? 'Paid' : 'Partially Paid';
+                appointment_audit_log($invoice->appointment_id, "Invoice payment received via API. Status: {$statusLabel}. Invoice #{$invoice->invoice_number}.");
+            }
+        } else {
+            $transaction = new Transaction;
+            $transaction->appointment_id = $appointmentId;
+            $transaction->invoice_id = $invoiceId;
+            $transaction->user_id = Auth::id();
+            $transaction->tran_date = Carbon::now();
+            $transaction->amount = floatval($amount);
+            $transaction->payment_method = 'stripe';
+            $transaction->notes = $transactionNote;
+            $transaction->last_payment_id = $lastPaymentId;
+            $transaction->save();
+        }
 
         return response()->json([
             'status' => true,

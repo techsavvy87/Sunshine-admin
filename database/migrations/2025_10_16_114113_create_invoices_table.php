@@ -24,7 +24,7 @@ return new class extends Migration
             $table->date('due_date')->nullable();
             $table->dateTime('paid_at')->nullable();
             $table->text('notes')->nullable();
-            $table->enum('status', ['draft', 'sent', 'paid', 'void'])->default('draft');
+            $table->enum('status', ['draft', 'sent', 'partially_paid', 'paid', 'void'])->default('draft');
             $table->timestamps();
         });
     }

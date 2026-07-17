@@ -134,6 +134,10 @@ class NotificationController extends Controller
             return redirect()->route('edit-customer', ['id' => $notification->sender_id]);
         }
 
+        if (!empty($metadata['appointment_id'])) {
+            return redirect()->route('appointment-dashboard', ['id' => $metadata['appointment_id']]);
+        }
+
         return redirect()->route('notifications');
     }
 }
