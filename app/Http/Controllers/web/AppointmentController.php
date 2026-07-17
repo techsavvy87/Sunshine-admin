@@ -4163,6 +4163,7 @@ class AppointmentController extends Controller
     public function saveInvoice(Request $request, $id)
     {
         $rules = [
+            'action' => 'nullable|in:save,send,pay',
             'invoice_number' => 'required|string',
             'first_name' => 'required|string|max:255',
             'last_name' => 'required|string|max:255',
@@ -4170,7 +4171,7 @@ class AppointmentController extends Controller
             'issued_at' => 'nullable|date',
             'due_date' => 'nullable|date',
             'paid_at' => 'nullable|date',
-            'status' => 'required|in:draft,sent,paid,void,finalized',
+            'status' => 'nullable|in:draft,sent,paid,void,finalized',
             'notes' => 'nullable|string|max:1000',
             'items' => 'nullable|array',
             'discount_title' => 'nullable|string|max:255',
@@ -4179,7 +4180,8 @@ class AppointmentController extends Controller
             'payment_notes' => 'nullable|string|max:1000',
         ];
 
-        if (strtolower((string) $request->status) === 'paid') {
+        $action = strtolower((string) $request->input('action', 'save'));
+        if ($action === 'pay' && $request->filled('payment_amount')) {
             $rules['payment_method'] = 'required|in:cash,check';
         }
 
@@ -4196,8 +4198,8 @@ class AppointmentController extends Controller
         // Check if invoice already exists for this appointment
         $invoice = Invoice::where('appointment_id', $appointment->id)->first();
         $isExistingInvoice = (bool) $invoice;
+        $currentInvoiceStatus = strtolower((string) ($invoice->status ?? 'draft'));
         if ($isExistingInvoice) {
-            $currentInvoiceStatus = strtolower((string) ($invoice->status ?? ''));
             $isInvoiceLocked = in_array($currentInvoiceStatus, ['paid', 'finalized'], true);
             if ($isInvoiceLocked && !$this->canEditLockedInvoice(Auth::user())) {
                 return response()->json([
@@ -4241,20 +4243,24 @@ class AppointmentController extends Controller
         $invoice->email = $request->email;
         $invoice->issued_at = $request->issued_at ? Carbon::parse($request->issued_at) : null;
         $invoice->due_date = $request->due_date ? Carbon::parse($request->due_date) : null;
-        if ($request->status !== "draft") {
-            $invoice->discount_amount = $resolvedDiscountAmount;
-            $invoice->discount_title = $resolvedDiscountTitle;
+        $targetStatus = strtolower((string) ($request->status ?? $currentInvoiceStatus ?? 'draft'));
+        if ($action === 'send') {
+            $targetStatus = 'sent';
+        } elseif ($action === 'pay' && $request->filled('payment_amount') && $request->filled('payment_method')) {
+            $targetStatus = $currentInvoiceStatus ?: 'draft';
         }
 
-        if ($request->status === 'paid' && !$request->paid_at) {
-            $invoice->paid_at = Carbon::now();
-        } else {
-            $invoice->paid_at = $request->paid_at ? Carbon::parse($request->paid_at) : null;
-        }
-        $invoice->status = $request->status;
+        $invoice->discount_amount = $resolvedDiscountAmount;
+        $invoice->discount_title = $resolvedDiscountTitle;
+
+        $invoice->paid_at = $request->paid_at ? Carbon::parse($request->paid_at) : $invoice->paid_at;
+        $invoice->status = $targetStatus;
         $invoice->notes = $request->notes;
         $invoice->save();
-        appointment_audit_log($appointment->id, "Invoice status changed to " . ucfirst($invoice->status) . ". Invoice #{$invoice->invoice_number}.");
+        $auditMessage = $action === 'send'
+            ? "Invoice sent. Invoice #{$invoice->invoice_number}."
+            : "Invoice saved. Invoice #{$invoice->invoice_number}.";
+        appointment_audit_log($appointment->id, $auditMessage);
 
         // Save invoice items
         $items = is_array($request->items) ? $request->items : [];
@@ -4282,7 +4288,9 @@ class AppointmentController extends Controller
         $invoice->load('items');
         $invoiceItemSummary = $this->summarizeInvoiceItemsFromInvoice($invoice);
         $appliedDiscountAmount = floatval($invoice->discount_amount ?? 0);
-        $invoiceSubtotal = max(0, $invoiceItemSummary['total_service_price'] - $appliedDiscountAmount + $invoiceItemSummary['total_inventory_amount']);
+        $invoiceTotals = $this->calculateInvoiceTotals($appointment, $invoiceItemSummary, $appliedDiscountAmount);
+        $invoiceSubtotal = $invoiceTotals['subtotal'];
+        $invoiceTotalAmount = $invoiceTotals['total'];
 
         $appointment->estimated_price = round($invoiceSubtotal, 2);
         $appointment->save();
@@ -4293,13 +4301,7 @@ class AppointmentController extends Controller
         ];
 
         $paymentLink = null;
-        if ($request->status === 'sent') {
-            // compute subtotal and tax so payment link includes tax
-            $subtotal = $invoiceItemSummary['total_service_price'] - $resolvedDiscountAmount + $invoiceItemSummary['total_inventory_amount'];
-            $stateTaxRate = isBoardingService($appointment->service) ? floatval(config('billing.state_tax_rate', 7)) : 0;
-            $stateTaxAmount = round($subtotal * ($stateTaxRate / 100), 2);
-            $totalAmount = round($subtotal + $stateTaxAmount, 2);
-
+        if ($action === 'send') {
             // Reuse existing pending/processing payment link for this invoice if present
             $paymentLink = \App\Models\PaymentLink::where('invoice_id', $invoice->id)
                 ->whereIn('status', ['pending', 'processing'])
@@ -4307,29 +4309,50 @@ class AppointmentController extends Controller
                 ->first();
 
             if ($paymentLink) {
-                $paymentLink->amount = $totalAmount;
+                $paymentLink->amount = $invoiceTotalAmount;
                 $paymentLink->currency = 'usd';
                 $paymentLink->expires_at = now()->addDays(30);
                 $paymentLink->save();
             } else {
-                $paymentLink = createPaymentLink($invoice, $appointment, $totalAmount);
+                $paymentLink = createPaymentLink($invoice, $appointment, $invoiceTotalAmount);
             }
         }
 
-        if ($request->status === 'paid' && $request->payment_amount && $request->payment_method) {
+        $remainingBalance = null;
+        if ($action === 'pay' && $request->payment_amount && $request->payment_method) {
+            $paymentAmount = round(floatval($request->payment_amount), 2);
+            $isFullyPaid = $paymentAmount >= $invoiceTotalAmount;
+
+            if ($isFullyPaid) {
+                $invoice->status = 'paid';
+                $invoice->paid_at = $request->paid_at ? Carbon::parse($request->paid_at) : Carbon::now();
+            } else {
+                $invoice->status = in_array($currentInvoiceStatus, ['draft', 'sent'], true)
+                    ? 'sent'
+                    : ($currentInvoiceStatus ?: 'sent');
+                $invoice->paid_at = null;
+            }
+            $invoice->save();
+
             $transaction = new Transaction;
             $transaction->appointment_id = $appointment->id;
             $transaction->invoice_id = $invoice->id;
             $transaction->user_id = $appointment->customer_id;
             $transaction->tran_date = $invoice->paid_at ?: Carbon::now();
-            $transaction->amount = $request->payment_amount;
+            $transaction->amount = $paymentAmount;
             $transaction->payment_method = $request->payment_method;
             $transaction->notes = $request->payment_notes;
             $transaction->save();
+
+            $remainingBalance = max(0, round($invoiceTotalAmount - $paymentAmount, 2));
+
+            appointment_audit_log($appointment->id, $isFullyPaid
+                ? "Invoice marked as paid. Invoice #{$invoice->invoice_number}."
+                : "Invoice payment recorded with remaining balance. Invoice #{$invoice->invoice_number}.");
         }
 
         $emailFailed = false;
-        if ($request->status === 'sent' || ($request->status === 'paid' && $request->payment_amount)) {
+        if ($action === 'send') {
             try {
                 $this->sendInvoiceEmail($invoice, $appointment, $items, $discountInfo, $paymentLink);
             } catch (\Throwable $e) {
@@ -4337,16 +4360,18 @@ class AppointmentController extends Controller
                 Log::error('Failed to send invoice email after saving invoice.', [
                     'appointment_id' => $appointment->id,
                     'invoice_id' => $invoice->id,
-                    'invoice_status' => $request->status,
+                    'invoice_status' => $action,
                     'error' => $e->getMessage(),
                 ]);
             }
         }
 
-        $responseMessage = $request->status === 'sent'
+        $responseMessage = $action === 'send'
             ? 'Invoice saved and sent successfully. <br>Payment link sent by email. Please ask the customer to complete payment using the link.'
-            : ($request->status === 'paid' && $request->payment_amount
-                ? 'Invoice saved and payment recorded successfully.'
+            : (($action === 'pay' && $request->payment_amount && $request->payment_method)
+                ? ($remainingBalance > 0
+                    ? 'Invoice saved and partial payment recorded successfully. Remaining balance: $' . number_format($remainingBalance, 2) . '.'
+                    : 'Invoice saved and payment recorded successfully.')
                 : 'Invoice saved successfully.');
 
         if ($emailFailed) {
@@ -4357,8 +4382,24 @@ class AppointmentController extends Controller
             'status' => true,
             'message' => $responseMessage,
             'email_failed' => $emailFailed,
-            'invoice_id' => $invoice->id
+            'invoice_id' => $invoice->id,
+            'invoice_total' => $invoiceTotalAmount,
+            'remaining_balance' => $remainingBalance
         ]);
+    }
+
+    private function calculateInvoiceTotals($appointment, array $invoiceItemSummary, float $discountAmount): array
+    {
+        $subtotal = max(0, $invoiceItemSummary['total_service_price'] - $discountAmount + $invoiceItemSummary['total_inventory_amount']);
+        $stateTaxRate = isBoardingService($appointment->service) ? floatval(config('billing.state_tax_rate', 7)) : 0;
+        $stateTaxAmount = round($subtotal * ($stateTaxRate / 100), 2);
+
+        return [
+            'subtotal' => $subtotal,
+            'state_tax_rate' => $stateTaxRate,
+            'state_tax_amount' => $stateTaxAmount,
+            'total' => round($subtotal + $stateTaxAmount, 2),
+        ];
     }
 
     private function canEditLockedInvoice(?User $user): bool

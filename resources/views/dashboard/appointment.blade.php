@@ -1304,30 +1304,6 @@
                     <legend class="fieldset-legend">Email*</legend>
                     <input type="text" id="email" class="input input-bordered w-full input-sm" value="{{ $invoice ? $invoice->email : ($appointment->customer->email ?? '') }}" placeholder="Enter email" />
                   </fieldset>
-                  <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
-                    <fieldset class="fieldset">
-                      <legend class="fieldset-legend">Issued At*</legend>
-                      <input type="datetime-local" id="issued_at" class="input w-full input-sm" value="{{ $invoice ? ($invoice->issued_at ? \Carbon\Carbon::parse($invoice->issued_at)->format('Y-m-d\TH:i') : '') : \Carbon\Carbon::now()->format('Y-m-d\TH:i') }}"/>
-                    </fieldset>
-                    <fieldset class="fieldset">
-                      <legend class="fieldset-legend">Due Date</legend>
-                      <input type="date" id="due_date" class="input w-full input-sm" value="{{ $invoice ? $invoice->due_date : '' }}"/>
-                    </fieldset>
-                  </div>
-                  <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
-                    <fieldset class="fieldset">
-                      <legend class="fieldset-legend">Paid At</legend>
-                      <input type="datetime-local" id="paid_at" class="input w-full input-sm" value="{{ $invoice ? $invoice->paid_at : '' }}"/>
-                    </fieldset>
-                    <fieldset class="fieldset">
-                      <legend class="fieldset-legend">Invoice Action</legend>
-                      <select class="select w-full input-sm" id="status" value="{{ $invoice ? $invoice->status : '' }}">
-                        <option value="">Select action</option>
-                        <option value="sent" {{ $invoice && $invoice->status == 'sent' ? 'selected' : '' }}>Send Invoice</option>
-                        <option value="paid" {{ $invoice && $invoice->status == 'paid' ? 'selected' : '' }}>Pay In Person</option>
-                      </select>
-                    </fieldset>
-                  </div>
                   <fieldset class="fieldset">
                     <legend class="fieldset-legend">Notes</legend>
                     <textarea placeholder="Type here" id="invoice_notes" class="textarea w-full">{{ $invoice ? $invoice->notes : '' }}</textarea>
@@ -1753,10 +1729,20 @@
                 </div>
                 <div class="mt-3">
                   @if(!$isInvoiceEditingLocked)
-                  <button type="button" id="save_invoice_btn" class="btn btn-primary btn-soft btn-sm" onclick="saveInvoice({{ $appointment->id }})">
-                    <span class="loading loading-spinner loading-sm" style="display: none;"></span>
-                    Save Invoice
-                  </button>
+                  <div class="flex flex-wrap gap-2">
+                    <button type="button" id="save_invoice_btn" class="btn btn-primary btn-soft btn-sm" onclick="saveInvoice({{ $appointment->id }})">
+                      <span class="loading loading-spinner loading-sm" style="display: none;"></span>
+                      Save Invoice
+                    </button>
+                    <button type="button" id="send_invoice_btn" class="btn btn-primary btn-outline btn-sm" onclick="sendInvoice({{ $appointment->id }})">
+                      <span class="loading loading-spinner loading-sm" style="display: none;"></span>
+                      Send Invoice
+                    </button>
+                    <button type="button" id="pay_invoice_btn" class="btn btn-secondary btn-soft btn-sm" onclick="payInPerson({{ $appointment->id }})">
+                      <span class="loading loading-spinner loading-sm" style="display: none;"></span>
+                      Pay In Person
+                    </button>
+                  </div>
                   @endif
                 </div>
               </div>
@@ -3991,10 +3977,6 @@
     });
 
     // Totals are initialized later after invoice constants are ready.
-    $('#status, #issued_at, #paid_at').on('change', function() {
-      updateTotals();
-    });
-
     // Initialize Select2 for inventory items
     $('#inventory_item').select2({
       placeholder: "Choose inventory items",
@@ -5888,9 +5870,11 @@
       return;
     }
 
-    $('#invoice_number, #first_name, #last_name, #email, #issued_at, #due_date, #paid_at, #status, #invoice_notes').prop('disabled', true);
+    $('#invoice_number, #first_name, #last_name, #email, #invoice_notes').prop('disabled', true);
     $('#inventory_item, #add_line_item_btn').prop('disabled', true);
     $('#save_invoice_btn').prop('disabled', true);
+    $('#send_invoice_btn').prop('disabled', true);
+    $('#pay_invoice_btn').prop('disabled', true);
     $('#pricing_table .btn').prop('disabled', true);
     $('#pricing_table input').prop('disabled', true);
   }
@@ -6158,8 +6142,8 @@
 
   function resolveInvoiceDiscountReferenceDate(status, overrides = {}) {
     const normalizedStatus = (status || '').toLowerCase();
-    const effectiveIssuedAt = overrides.issuedAt || invoiceIssuedAt || $('#issued_at').val();
-    const effectivePaidAt = overrides.paidAt || invoicePaidAt || $('#paid_at').val();
+    const effectiveIssuedAt = overrides.issuedAt || invoiceIssuedAt;
+    const effectivePaidAt = overrides.paidAt || invoicePaidAt;
     const effectiveInvoiceExists = typeof overrides.invoiceExists === 'boolean' ? overrides.invoiceExists : invoiceExists;
     const effectiveInvoiceStatus = (overrides.invoiceStatus || invoiceDefaultStatus || '').toLowerCase();
 
@@ -6249,7 +6233,7 @@
       }
     });
 
-    const effectiveStatus = statusOverride || $('#status').val() || invoiceDefaultStatus;
+    const effectiveStatus = statusOverride || invoiceDefaultStatus;
     const discountRow = $('#invoice_discount_row');
     const canRenderDiscount = discountRow.length > 0;
 
@@ -6372,136 +6356,142 @@
     $('#payment_method_static').addClass('hidden');
   }
 
-  function saveInvoice(appointmentId) {
+  function toggleInvoiceButtonLoading(buttonId, isLoading, loadingLabel = 'Loading') {
+    const button = $(buttonId);
+    if (!button.length) {
+      return;
+    }
+
+    button.find('.loading').css('display', isLoading ? 'inline-block' : 'none');
+    button.prop('disabled', isLoading);
+
+    if (!button.data('default-label')) {
+      const defaultLabel = button.clone().children().remove().end().text().trim();
+      button.data('default-label', defaultLabel);
+    }
+
+    button.contents().filter(function() {
+      return this.nodeType === 3 && this.nodeValue.trim();
+    }).remove();
+
+    button.append(isLoading ? loadingLabel : button.data('default-label'));
+  }
+
+  function buildInvoiceSubmissionData(action) {
     const invoice_number = $('#invoice_number').val();
     const first_name = $('#first_name').val();
     const last_name = $('#last_name').val();
     const email = $('#email').val();
-    const issued_at = $('#issued_at').val();
-    const due_date = $('#due_date').val();
-    const paid_at = $('#paid_at').val();
-    const status = $('#status').val();
     const notes = $('#invoice_notes').val();
-    const discount_amount = parseFloat($('#invoice_discount_amount').text().replace(/[^0-9.]/g, '')) || 0;
-    const discount_title = currentDiscountTitle;
-
-    // Validate required fields
-    if (!invoice_number || !first_name || !last_name || !email || !issued_at) {
-      $('#alert_message').text('Please fill in all required fields in the invoice form.');
-      alert_modal.showModal();
-      return;
-    }
-
-    if (status === 'paid' && !paid_at) {
-      $('#alert_message').text('Please fill in the Paid At field when Status is Paid.');
-      alert_modal.showModal();
-      return;
-    }
-
-    const isGroupClass = {{ isGroupClassService($appointment->service) ? 'true' : 'false' }};
-
-    if (status === 'paid' && !isGroupClass) {
-      if (!moment(paid_at).isValid()) {
-        $('#alert_message').text('Please provide a valid Paid At date/time.');
-        alert_modal.showModal();
-        return;
-      }
-
-      const totals = updateTotals('paid', {
-        paidAt: paid_at,
-        issuedAt: issued_at,
-        invoiceExists,
-        invoiceStatus: status
-      });
-
-      $('#payment_amount').val(totals.totalAmount.toFixed(2));
-      renderPaymentMethodOptions(status);
-      $('#payment_notes').val('');
-
-      const paymentDiscountSummary = $('#payment_discount_summary');
-      const paymentDiscountText = $('#payment_discount_text');
-      const paymentDiscountMeta = $('#payment_discount_meta');
-      const invoiceTotalTooltip = $('#invoice_total_tooltip');
-      if (totals.discountAmount > 0) {
-        const discountTitle = totals.discountRule && totals.discountRule.title ? totals.discountRule.title : (currentDiscountTitle || 'Discount');
-        paymentDiscountText.text('The discount "' + discountTitle + '" is applied to ' + invoiceCustomerFullName + '.');
-        paymentDiscountSummary.removeClass('hidden');
-        paymentDiscountMeta.show();
-        invoiceTotalTooltip.attr('data-tip', 'The discount "' + discountTitle + '" is applied for ' + invoiceCustomerFullName + '.');
-      } else {
-        paymentDiscountText.text('No discount applies to ' + invoiceCustomerFullName + '.');
-        paymentDiscountSummary.removeClass('hidden');
-        paymentDiscountMeta.hide();
-        invoiceTotalTooltip.attr('data-tip', '');
-      }
-      
-      window.pendingInvoiceData = {
-        invoice_number: invoice_number,
-        first_name: first_name,
-        last_name: last_name,
-        email: email,
-        issued_at: issued_at,
-        due_date: due_date,
-        paid_at: paid_at,
-        status: status,
-        notes: notes,
-        appointmentId: appointmentId,
-        discount_amount: totals.discountAmount || 0,
-        discount_title: totals.discountRule && totals.discountRule.title ? totals.discountRule.title : (persistedInvoiceDiscountTitle || null)
-      };
-      
-      payment_modal.showModal();
-      return;
-    }
-
     const items = collectInvoiceItems();
-    const currentTotals = updateTotals(status, {
-      paidAt: paid_at,
-      issuedAt: issued_at,
+    const status = action === 'send' ? 'sent' : (invoiceDefaultStatus || 'draft');
+    const totals = updateTotals(status, {
       invoiceExists,
-      invoiceStatus: status
+      invoiceStatus: invoiceDefaultStatus
     });
 
-    // Show loading spinner in the button and disable it
-    $('#save_invoice_btn .loading').css('display', 'inline-block');
-    $('#save_invoice_btn').prop('disabled', true);
-    // Remove the original 'Save Invoice' text
-    $('#save_invoice_btn').contents().filter(function() {
-      return this.nodeType === 3 && this.nodeValue.trim() === 'Save Invoice';
-    }).remove();
-    // Add 'Loading' text
-    $('#save_invoice_btn').append('Loading');
+    if (!invoice_number || !first_name || !last_name || !email) {
+      $('#alert_message').text('Please fill in all required fields in the invoice form.');
+      alert_modal.showModal();
+      return null;
+    }
 
-    // Send AJAX request
+    return {
+      invoice_number: invoice_number,
+      first_name: first_name,
+      last_name: last_name,
+      email: email,
+      notes: notes,
+      status: status,
+      items: items,
+      totals: totals,
+      discount_amount: totals.discountAmount || 0,
+      discount_title: currentDiscountTitle || persistedInvoiceDiscountTitle || null
+    };
+  }
+
+  function syncPaymentModalSummary(totals, customerName) {
+    const paymentDiscountSummary = $('#payment_discount_summary');
+    const paymentDiscountText = $('#payment_discount_text');
+    const paymentDiscountMeta = $('#payment_discount_meta');
+    const invoiceTotalTooltip = $('#invoice_total_tooltip');
+    const resolvedCustomerName = customerName || invoiceCustomerFullName;
+
+    if (!paymentDiscountSummary.length || !paymentDiscountText.length || !paymentDiscountMeta.length || !invoiceTotalTooltip.length) {
+      return;
+    }
+
+    if (totals && totals.discountAmount > 0) {
+      const discountTitle = totals.discountRule && totals.discountRule.title ? totals.discountRule.title : (currentDiscountTitle || 'Discount');
+      paymentDiscountText.text('The discount "' + discountTitle + '" is applied to ' + resolvedCustomerName + '.');
+      paymentDiscountSummary.removeClass('hidden');
+      paymentDiscountMeta.show();
+      invoiceTotalTooltip.attr('data-tip', 'The discount "' + discountTitle + '" is applied for ' + resolvedCustomerName + '.');
+    } else {
+      paymentDiscountText.text('No discount applies to ' + resolvedCustomerName + '.');
+      paymentDiscountSummary.removeClass('hidden');
+      paymentDiscountMeta.hide();
+      invoiceTotalTooltip.attr('data-tip', '');
+    }
+  }
+
+  function openPaymentModalForInvoice(submission) {
+    $('#payment_amount').val(submission.totals.totalAmount.toFixed(2));
+    renderPaymentMethodOptions('paid');
+    $('#payment_notes').val('');
+    syncPaymentModalSummary(submission.totals, invoiceCustomerFullName);
+
+    window.pendingInvoiceData = {
+      invoice_number: submission.invoice_number,
+      first_name: submission.first_name,
+      last_name: submission.last_name,
+      email: submission.email,
+      notes: submission.notes,
+      status: submission.status,
+      discount_amount: submission.discount_amount,
+      discount_title: submission.discount_title,
+      invoice_total: submission.totals.totalAmount
+    };
+
+    payment_modal.showModal();
+  }
+
+  function submitInvoiceAction(appointmentId, action, options = {}) {
+    const submission = buildInvoiceSubmissionData(action);
+    if (!submission) {
+      return;
+    }
+
+    const buttonId = options.buttonId || (action === 'send' ? '#send_invoice_btn' : '#save_invoice_btn');
+    toggleInvoiceButtonLoading(buttonId, true);
+
     $.ajax({
       url: '{{ route("save-invoice-appointment", ":id") }}'.replace(':id', appointmentId),
       method: 'POST',
       data: {
         _token: '{{ csrf_token() }}',
-        invoice_number: invoice_number,
-        first_name: first_name,
-        last_name: last_name,
-        email: email,
-        issued_at: issued_at ? moment(issued_at).format('YYYY-MM-DD HH:mm:ss') : null,
-        due_date: due_date ? moment(due_date).format('YYYY-MM-DD') : null,
-        paid_at: paid_at ? moment(paid_at).format('YYYY-MM-DD HH:mm:ss') : null,
-        status: status,
-        notes: notes,
-        items: items,
-        discount_amount: discount_amount,
-        discount_title: currentDiscountTitle || null
+        action: action,
+        invoice_number: submission.invoice_number,
+        first_name: submission.first_name,
+        last_name: submission.last_name,
+        email: submission.email,
+        status: submission.status,
+        notes: submission.notes,
+        items: submission.items,
+        discount_amount: submission.discount_amount,
+        discount_title: submission.discount_title
       },
       success: function(response) {
-        // Reset button state
-        $('#save_invoice_btn .loading').css('display', 'none');
-        $('#save_invoice_btn').prop('disabled', false);
-        $('#save_invoice_btn').contents().filter(function() {
-          return this.nodeType === 3 && this.nodeValue.trim() === 'Loading';
-        }).remove();
-        $('#save_invoice_btn').append('Save Invoice');
+        toggleInvoiceButtonLoading(buttonId, false);
 
         if (response.status) {
-          updateDetailSectionSummaryFromInvoice(items, currentTotals);
+          updateDetailSectionSummaryFromInvoice(submission.items, submission.totals);
+
+          if (options.openPaymentModal) {
+            openPaymentModalForInvoice(submission);
+            return;
+          }
+
           $('#success_message').html(response.message || 'Invoice saved successfully!');
           success_modal.showModal();
         } else {
@@ -6510,13 +6500,7 @@
         }
       },
       error: function(xhr, status, error) {
-        // Reset button state
-        $('#save_invoice_btn .loading').css('display', 'none');
-        $('#save_invoice_btn').prop('disabled', false);
-        $('#save_invoice_btn').contents().filter(function() {
-          return this.nodeType === 3 && this.nodeValue.trim() === 'Loading';
-        }).remove();
-        $('#save_invoice_btn').append('Save Invoice');
+        toggleInvoiceButtonLoading(buttonId, false);
 
         console.error('Error saving invoice:', error);
         const backendMessage = xhr && xhr.responseJSON && xhr.responseJSON.message
@@ -6525,6 +6509,21 @@
         $('#alert_message').text(backendMessage || 'Error saving invoice. Please try again.');
         alert_modal.showModal();
       }
+    });
+  }
+
+  function saveInvoice(appointmentId) {
+    submitInvoiceAction(appointmentId, 'save');
+  }
+
+  function sendInvoice(appointmentId) {
+    submitInvoiceAction(appointmentId, 'send', { buttonId: '#send_invoice_btn' });
+  }
+
+  function payInPerson(appointmentId) {
+    submitInvoiceAction(appointmentId, 'save', {
+      buttonId: '#pay_invoice_btn',
+      openPaymentModal: true
     });
   }
 
@@ -6551,20 +6550,17 @@
     $('#confirm_payment_btn').prop('disabled', true);
 
     const invoiceData = window.pendingInvoiceData || {};
-    const currentPaidAt = invoiceData.paid_at || $('#paid_at').val() || moment().format('YYYY-MM-DD HH:mm:ss');
 
     $.ajax({
       url: '{{ route("save-invoice-appointment", ":id") }}'.replace(':id', appointmentId),
       method: 'POST',
       data: {
         _token: '{{ csrf_token() }}',
+        action: 'pay',
         invoice_number: invoiceData.invoice_number || $('#invoice_number').val(),
         first_name: invoiceData.first_name || $('#first_name').val(),
         last_name: invoiceData.last_name || $('#last_name').val(),
         email: invoiceData.email || $('#email').val(),
-        issued_at: invoiceData.issued_at ? moment(invoiceData.issued_at).format('YYYY-MM-DD HH:mm:ss') : ($('#issued_at').val() ? moment($('#issued_at').val()).format('YYYY-MM-DD HH:mm:ss') : null),
-        due_date: invoiceData.due_date ? moment(invoiceData.due_date).format('YYYY-MM-DD') : ($('#due_date').val() ? moment($('#due_date').val()).format('YYYY-MM-DD') : null),
-        paid_at: currentPaidAt ? moment(currentPaidAt).format('YYYY-MM-DD HH:mm:ss') : null,
         status: 'paid',
         notes: invoiceData.notes || $('#invoice_notes').val(),
         items: items,
@@ -6577,16 +6573,12 @@
       success: function(response) {
         $('#confirm_payment_btn .loading').css('display', 'none');
         $('#confirm_payment_btn').prop('disabled', false);
-        payment_modal.close();
-        delete window.pendingInvoiceData;
 
         if (response.status) {
-          $('#success_message').text('Invoice saved and payment recorded successfully!');
+          payment_modal.close();
+          delete window.pendingInvoiceData;
+          $('#success_message').text(response.message || 'Invoice saved and payment recorded successfully!');
           success_modal.showModal();
-          
-          setTimeout(function() {
-            window.location.reload();
-          }, 1500)
         } else {
           $('#alert_message').text('Error: ' + (response.message || 'Unknown error'));
           alert_modal.showModal();
