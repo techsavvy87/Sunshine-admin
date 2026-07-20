@@ -19,6 +19,7 @@ return new class extends Migration
             $table->timestamp('tran_date');
             $table->decimal('amount', $precision = 8, $scale = 2);
             $table->string('payment_method')->nullable(); // Stripe payment method type
+            $table->string('authorization_code')->nullable();
             $table->string('stripe_transaction_id')->nullable();
             $table->text('notes')->nullable();
             $table->string('last_payment_id')->nullable();

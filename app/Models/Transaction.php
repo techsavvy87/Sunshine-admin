@@ -13,6 +13,7 @@ class Transaction extends Model
         'tran_date',
         'amount',
         'payment_method',
+        'authorization_code',
         'notes',
         'last_payment_id',
         'stripe_transaction_id',

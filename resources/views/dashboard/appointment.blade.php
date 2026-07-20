@@ -3470,10 +3470,15 @@
           <option value="">Select payment type</option>
           <option value="cash">Cash</option>
           <option value="check">Check</option>
+          <option value="terminal_card">Credit Card (Terminal)</option>
         </select>
         <div id="payment_method_static" class="input input-bordered w-full input-sm hidden">
           Cash
         </div>
+      </fieldset>
+      <fieldset id="authorization_code_field" class="fieldset hidden">
+        <legend class="fieldset-legend">Authorization Code*</legend>
+        <input type="text" id="authorization_code" class="input input-bordered w-full input-sm" maxlength="255" placeholder="482913" />
       </fieldset>
       <fieldset class="fieldset">
         <legend class="fieldset-legend">Notes</legend>
@@ -6453,11 +6458,23 @@
     paymentMethod.append($('<option>').val('').text('Select payment type'));
     paymentMethod.append($('<option>').val('cash').text('Cash'));
     paymentMethod.append($('<option>').val('check').text('Check'));
+    paymentMethod.append($('<option>').val('terminal_card').text('Credit Card (Terminal)'));
 
     paymentMethod.val('');
+    $('#authorization_code').val('');
+    $('#authorization_code_field').addClass('hidden');
     $('#payment_method').removeClass('hidden');
     $('#payment_method_static').addClass('hidden');
   }
+
+  $('#payment_method').on('change', function() {
+    const isTerminalCard = $(this).val() === 'terminal_card';
+    $('#authorization_code_field').toggleClass('hidden', !isTerminalCard);
+    $('#authorization_code').prop('required', isTerminalCard);
+    if (!isTerminalCard) {
+      $('#authorization_code').val('');
+    }
+  });
 
   function toggleInvoiceButtonLoading(buttonId, isLoading, loadingLabel = 'Loading') {
     const button = $(buttonId);
@@ -6648,6 +6665,7 @@
   function confirmPayment(appointmentId) {
     const amount = $('#payment_amount').val();
     const paymentMethod = $('#payment_method').val();
+    const authorizationCode = $('#authorization_code').val().trim();
     const paymentNotes = $('#payment_notes').val();
 
     if (!amount || parseFloat(amount) <= 0) {
@@ -6658,6 +6676,12 @@
 
     if (!paymentMethod) {
       $('#alert_message').text('Please select a payment type.');
+      alert_modal.showModal();
+      return;
+    }
+
+    if (paymentMethod === 'terminal_card' && !authorizationCode) {
+      $('#alert_message').text('Please enter the terminal authorization code.');
       alert_modal.showModal();
       return;
     }
@@ -6686,6 +6710,7 @@
         discount_title: invoiceData.discount_title || null,
         payment_amount: amount,
         payment_method: paymentMethod,
+        authorization_code: paymentMethod === 'terminal_card' ? authorizationCode : null,
         payment_notes: paymentNotes
       },
       success: function(response) {

@@ -4177,13 +4177,14 @@ class AppointmentController extends Controller
             'items' => 'nullable|array',
             'discount_title' => 'nullable|string|max:255',
             'payment_amount' => 'nullable|numeric|min:0',
-            'payment_method' => 'nullable|in:cash,check',
+            'payment_method' => 'nullable|in:cash,check,terminal_card',
+            'authorization_code' => 'nullable|string|max:255|required_if:payment_method,terminal_card',
             'payment_notes' => 'nullable|string|max:1000',
         ];
 
         $action = strtolower((string) $request->input('action', 'save'));
         if ($action === 'pay' && $request->filled('payment_amount')) {
-            $rules['payment_method'] = 'required|in:cash,check';
+            $rules['payment_method'] = 'required|in:cash,check,terminal_card';
         }
 
         $request->validate($rules);
@@ -4315,6 +4316,9 @@ class AppointmentController extends Controller
                 'tran_date' => Carbon::now(),
                 'amount' => round(floatval($request->payment_amount), 2),
                 'payment_method' => $request->payment_method,
+                'authorization_code' => $request->payment_method === 'terminal_card'
+                    ? trim((string) $request->authorization_code)
+                    : null,
                 'notes' => $request->payment_notes,
             ]);
 
@@ -4329,7 +4333,10 @@ class AppointmentController extends Controller
                 'id' => $paymentResult['transaction']->id,
                 'amount' => round(floatval($paymentResult['transaction']->amount ?? 0), 2),
                 'payment_method' => $paymentResult['transaction']->payment_method,
-                'payment_method_label' => ucfirst(strtolower((string) ($paymentResult['transaction']->payment_method ?? 'Payment'))),
+                'payment_method_label' => $paymentResult['transaction']->payment_method === 'terminal_card'
+                    ? 'Credit Card (Terminal)'
+                    : ucfirst(strtolower((string) ($paymentResult['transaction']->payment_method ?? 'Payment'))),
+                'authorization_code' => $paymentResult['transaction']->authorization_code,
                 'tran_date' => optional($paymentResult['transaction']->tran_date)->format('Y-m-d H:i:s'),
                 'notes' => $paymentResult['transaction']->notes,
             ];

@@ -30,6 +30,7 @@ class InvoicePaymentService
         $onlinePayment = 0.0;
         $cashPayment = 0.0;
         $checkPayment = 0.0;
+        $terminalCardPayment = 0.0;
         $otherPayment = 0.0;
         $latestTransactionDate = null;
 
@@ -41,6 +42,8 @@ class InvoicePaymentService
                 $cashPayment += $amount;
             } elseif ($method === 'check') {
                 $checkPayment += $amount;
+            } elseif ($method === 'terminal_card') {
+                $terminalCardPayment += $amount;
             } elseif (in_array($method, ['card', 'stripe'], true)) {
                 $onlinePayment += $amount;
             } else {
@@ -52,7 +55,7 @@ class InvoicePaymentService
             }
         }
 
-        $inPersonPayment = round($cashPayment + $checkPayment, 2);
+        $inPersonPayment = round($cashPayment + $checkPayment + $terminalCardPayment, 2);
         $paymentsReceived = round($onlinePayment + $inPersonPayment + $otherPayment, 2);
         $balanceDue = max(0, round($totalAmount - $paymentsReceived, 2));
         $currentStatus = strtolower((string) ($invoice->status ?? 'draft'));
@@ -77,6 +80,7 @@ class InvoicePaymentService
             'online_payment' => round($onlinePayment, 2),
             'cash_payment' => round($cashPayment, 2),
             'check_payment' => round($checkPayment, 2),
+            'terminal_card_payment' => round($terminalCardPayment, 2),
             'in_person_payment' => $inPersonPayment,
             'other_payment' => round($otherPayment, 2),
             'payments_received' => $paymentsReceived,
@@ -130,6 +134,7 @@ class InvoicePaymentService
             $transaction->tran_date = $attributes['tran_date'] ?? Carbon::now();
             $transaction->amount = round(floatval($attributes['amount'] ?? 0), 2);
             $transaction->payment_method = $attributes['payment_method'] ?? null;
+            $transaction->authorization_code = $attributes['authorization_code'] ?? null;
             $transaction->stripe_transaction_id = $stripeTransactionId !== '' ? $stripeTransactionId : null;
             $transaction->last_payment_id = $lastPaymentId !== '' ? $lastPaymentId : null;
             $transaction->notes = $attributes['notes'] ?? null;
@@ -158,10 +163,18 @@ class InvoicePaymentService
         $paymentMethod = $this->normalizePaymentMethod($transaction);
         $paymentLabel = $this->humanizePaymentMethod($paymentMethod);
         $paymentAmount = round(floatval($transaction->amount ?? 0), 2);
+        $authorizationCode = trim((string) ($transaction->authorization_code ?? ''));
         $customerName = trim((($appointment->customer->profile->first_name ?? '') . ' ' . ($appointment->customer->profile->last_name ?? '')))
             ?: ($appointment->customer->name ?? 'Customer');
 
-        if (($summary['balance_due'] ?? 0) <= 0.00001) {
+        if ($paymentMethod === 'terminal_card') {
+            $title = ($summary['balance_due'] ?? 0) <= 0.00001
+                ? 'Payment Received'
+                : 'Invoice Partially Paid';
+            $message = "Appointment #{$appointment->id} has a {$paymentLabel} payment of $"
+                . number_format($paymentAmount, 2)
+                . ". Authorization code: {$authorizationCode}.";
+        } elseif (($summary['balance_due'] ?? 0) <= 0.00001) {
             $title = $paymentMethod === 'card' ? 'Invoice Paid' : 'Payment Received';
             $message = $paymentMethod === 'card'
                 ? "Appointment #{$appointment->id} has been fully paid online."
@@ -180,6 +193,7 @@ class InvoicePaymentService
             'payment_amount' => $this->formatMetadataAmount($paymentAmount),
             'payment_type' => $paymentMethod,
             'payment_type_label' => $paymentLabel,
+            'authorization_code' => $authorizationCode !== '' ? $authorizationCode : null,
             'timestamp' => optional($transaction->tran_date)->format('Y-m-d H:i:s'),
             'balance_due' => isset($summary['balance_due'])
                 ? $this->formatMetadataAmount($summary['balance_due'])
@@ -221,6 +235,10 @@ class InvoicePaymentService
             return 'check';
         }
 
+        if (in_array($paymentMethod, ['terminal_card', 'terminal card'], true)) {
+            return 'terminal_card';
+        }
+
         if ($transaction->stripe_transaction_id || $transaction->last_payment_id || in_array($paymentMethod, ['card', 'cc', 'credit card', 'credit_card', 'stripe'], true)) {
             return 'card';
         }
@@ -234,6 +252,7 @@ class InvoicePaymentService
             'card' => 'online',
             'cash' => 'cash',
             'check' => 'check',
+            'terminal_card' => 'credit card (terminal)',
             default => str_replace('_', ' ', $paymentMethod),
         };
     }

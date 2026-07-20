@@ -44,6 +44,7 @@ class AdminPaymentController extends Controller
                         ->orWhere('customer_name', 'like', $like)
                         ->orWhere('payment_type', 'like', $like)
                         ->orWhere('payment_status', 'like', $like)
+                        ->orWhere('authorization_code', 'like', $like)
                         ->orWhere('stripe_payment_id', 'like', $like);
                 });
             })
@@ -230,11 +231,11 @@ class AdminPaymentController extends Controller
             ->leftJoin('users as au', 'au.id', '=', DB::raw('COALESCE(ta.customer_id, ia.customer_id)'))
             ->leftJoin('profiles as au_profile', 'au_profile.user_id', '=', 'au.id')
             ->where(function ($query) {
-                $query->whereIn('t.payment_method', ['cash', 'card', 'cc'])
+                $query->whereIn('t.payment_method', ['cash', 'check', 'terminal_card', 'card', 'cc'])
                     ->orWhereNotNull('t.stripe_transaction_id')
                     ->orWhereNotNull('t.last_payment_id');
             })
-            ->whereRaw("LOWER(TRIM(COALESCE(t.payment_method, ''))) IN ('cash', 'card', 'cc', 'credit_card', 'credit card') OR t.stripe_transaction_id IS NOT NULL OR t.last_payment_id IS NOT NULL")
+            ->whereRaw("LOWER(TRIM(COALESCE(t.payment_method, ''))) IN ('cash', 'check', 'terminal_card', 'card', 'cc', 'credit_card', 'credit card') OR t.stripe_transaction_id IS NOT NULL OR t.last_payment_id IS NOT NULL")
             ->selectRaw("
                 CONCAT('transaction-', t.id) as row_key,
                 COALESCE(i.invoice_number, CONCAT('Invoice #', COALESCE(t.invoice_id, 'N/A'))) as invoice_reference,
@@ -247,17 +248,20 @@ class AdminPaymentController extends Controller
                 t.amount as amount,
                 CASE
                     WHEN LOWER(TRIM(COALESCE(t.payment_method, ''))) = 'cash' THEN 'Cash'
-                    ELSE 'Credit Card'
+                    WHEN LOWER(TRIM(COALESCE(t.payment_method, ''))) = 'check' THEN 'Check'
+                    WHEN LOWER(TRIM(COALESCE(t.payment_method, ''))) = 'terminal_card' THEN 'Credit Card (Terminal)'
+                    ELSE 'Online Credit Card (Stripe)'
                 END as payment_type,
                 'paid' as payment_status,
                 COALESCE(t.tran_date, i.paid_at, t.created_at) as payment_date,
                 CASE
-                    WHEN LOWER(TRIM(COALESCE(t.payment_method, ''))) = 'cash'
+                    WHEN LOWER(TRIM(COALESCE(t.payment_method, ''))) IN ('cash', 'check', 'terminal_card')
                         AND t.stripe_transaction_id IS NULL
                         AND t.last_payment_id IS NULL
                     THEN NULL
                     ELSE COALESCE(t.stripe_transaction_id, t.last_payment_id)
                 END as stripe_payment_id,
+                t.authorization_code as authorization_code,
                 COALESCE(t.tran_date, i.paid_at, t.created_at) as sort_at
             ");
 
@@ -312,7 +316,7 @@ class AdminPaymentController extends Controller
                 {$paymentLinkCustomerNameExpression} as customer_name,
                 COALESCE(iu_profile.avatar_img, au_profile.avatar_img) as customer_avatar_path,
                 pl.amount as amount,
-                'Credit Card' as payment_type,
+                'Online Credit Card (Stripe)' as payment_type,
                 CASE
                     WHEN LOWER(TRIM(COALESCE(pl.status, ''))) = 'completed' THEN 'paid'
                     WHEN LOWER(TRIM(COALESCE(pl.status, ''))) IN ('pending', 'processing') THEN 'pending'
@@ -322,6 +326,7 @@ class AdminPaymentController extends Controller
                 END as payment_status,
                 COALESCE(pl.completed_at, pl.updated_at, pl.created_at) as payment_date,
                 COALESCE(pl.stripe_transaction_id, pl.stripe_payment_intent_id) as stripe_payment_id,
+                NULL as authorization_code,
                 COALESCE(pl.completed_at, pl.updated_at, pl.created_at) as sort_at
             ");
 
@@ -340,7 +345,7 @@ class AdminPaymentController extends Controller
                     ->from('transactions as t2')
                     ->whereColumn('t2.invoice_id', 'i.id')
                     ->where(function ($nested) {
-                        $nested->whereIn('t2.payment_method', ['cash', 'card', 'cc'])
+                        $nested->whereIn('t2.payment_method', ['cash', 'check', 'terminal_card', 'card', 'cc'])
                             ->orWhereNotNull('t2.stripe_transaction_id')
                             ->orWhereNotNull('t2.last_payment_id');
                     });
@@ -373,6 +378,7 @@ class AdminPaymentController extends Controller
                 'paid' as payment_status,
                 COALESCE(i.paid_at, i.updated_at, i.created_at) as payment_date,
                 NULL as stripe_payment_id,
+                NULL as authorization_code,
                 COALESCE(i.paid_at, i.updated_at, i.created_at) as sort_at
             ");
 

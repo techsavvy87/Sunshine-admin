@@ -32,12 +32,14 @@
             name="search"
             value="{{ $search }}"
             class="input input-sm w-full"
-            placeholder="Search invoice, appointment, customer, or Stripe ID"
+            placeholder="Search invoice, customer, authorization code, or Stripe ID"
           />
           <select name="payment_type" class="select select-sm w-full">
             <option value="">All payment types</option>
             <option value="Cash" {{ $paymentType === 'Cash' ? 'selected' : '' }}>Cash</option>
-            <option value="Credit Card" {{ $paymentType === 'Credit Card' ? 'selected' : '' }}>Credit Card</option>
+            <option value="Check" {{ $paymentType === 'Check' ? 'selected' : '' }}>Check</option>
+            <option value="Credit Card (Terminal)" {{ $paymentType === 'Credit Card (Terminal)' ? 'selected' : '' }}>Credit Card (Terminal)</option>
+            <option value="Online Credit Card (Stripe)" {{ $paymentType === 'Online Credit Card (Stripe)' ? 'selected' : '' }}>Online Credit Card (Stripe)</option>
           </select>
           <select name="payment_status" class="select select-sm w-full">
             <option value="">All statuses</option>
@@ -68,7 +70,7 @@
               <th>Payment Type</th>
               <th>Status</th>
               <th>Payment Date</th>
-              <th>Stripe Payment ID</th>
+              <th>Payment Reference</th>
             </tr>
           </thead>
           <tbody>
@@ -98,7 +100,15 @@
               </td>
               <td class="text-sm font-medium">${{ number_format($payment->amount, 2) }}</td>
               <td class="text-sm">
-                <span class="badge badge-sm {{ $payment->payment_type === 'Cash' ? 'badge-soft badge-success' : 'badge-soft badge-info' }}">
+                @php
+                  $paymentTypeClasses = match($payment->payment_type) {
+                    'Cash' => 'badge-soft badge-success',
+                    'Check' => 'badge-soft badge-warning',
+                    'Credit Card (Terminal)' => 'badge-soft badge-secondary',
+                    default => 'badge-soft badge-info'
+                  };
+                @endphp
+                <span class="badge badge-sm {{ $paymentTypeClasses }}">
                   {{ $payment->payment_type }}
                 </span>
               </td>
@@ -118,7 +128,9 @@
                 {{ $payment->payment_date ? $payment->payment_date->format('m/d/Y h:i A') : '-' }}
               </td>
               <td class="text-sm">
-                @if($payment->stripe_payment_id)
+                @if($payment->authorization_code)
+                <span class="font-mono text-xs">{{ $payment->authorization_code }}</span>
+                @elseif($payment->stripe_payment_id)
                 <span class="font-mono text-xs">{{ $payment->stripe_payment_id }}</span>
                 @else
                 <span class="text-base-content/60">-</span>
