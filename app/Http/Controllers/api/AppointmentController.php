@@ -57,8 +57,9 @@ class AppointmentController extends Controller
         $vaccineMessage = $vaccineValidation['message'] ?? null;
         // Pet Questionnaire status check
 
+        $questionnaireRequired = $pet->owner->requiresAppointmentQuestionnaire();
         $questionnaireStatus = true;
-        if (isPackageService($service)) {
+        if ($questionnaireRequired && isPackageService($service)) {
             $package = Package::find($request->package_id);
             if ($package && $package->service_ids) {
                 $serviceIds = array_map('trim', explode(',', $package->service_ids));
@@ -87,7 +88,7 @@ class AppointmentController extends Controller
                     }
                 }
             }
-        } else {
+        } elseif ($questionnaireRequired) {
             if (isGroomingService($service) || isAlaCarteService($service)) {
                 $serviceCategory = ServiceCategory::whereRaw('LOWER(name) LIKE ?', ['%groom%'])->first();
                 $questionnaire = Questionnaire::where('pet_id', $pet->id)
@@ -562,4 +563,3 @@ class AppointmentController extends Controller
         }
     }
 }
-

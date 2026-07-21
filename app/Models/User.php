@@ -11,6 +11,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 class User extends Authenticatable
 {
+    public const APPOINTMENT_QUESTIONNAIRE_REQUIRED_FROM = '2026-07-20';
+
     /** @use HasFactory<\Database\Factories\UserFactory> */
     use HasApiTokens, HasFactory, Notifiable;
 
@@ -46,6 +48,12 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
         ];
+    }
+
+    public function requiresAppointmentQuestionnaire(): bool
+    {
+        return $this->created_at === null
+            || $this->created_at->gte(self::APPOINTMENT_QUESTIONNAIRE_REQUIRED_FROM);
     }
 
     public function roles(): BelongsToMany

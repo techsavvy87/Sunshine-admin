@@ -2029,12 +2029,17 @@ class AppointmentController extends Controller
 
         $vaccineMessage = $vaccineMessages[0] ?? null;
 
-        $questionnaire = Questionnaire::where('pet_id', optional($primaryPet)->id)
-            ->where('user_id', optional($primaryPet)->user_id)
-            ->where('service_category_id', $service->category->id)
-            ->orderBy('created_at', 'desc')
-            ->first();
-        $questionnaireStatus = $questionnaire && $questionnaire->status === 'approved' ? true : false;
+        $questionnaireRequired = optional(optional($primaryPet)->owner)->requiresAppointmentQuestionnaire() ?? true;
+        $questionnaireStatus = true;
+
+        if ($questionnaireRequired) {
+            $questionnaire = Questionnaire::where('pet_id', optional($primaryPet)->id)
+                ->where('user_id', optional($primaryPet)->user_id)
+                ->where('service_category_id', $service->category->id)
+                ->orderBy('created_at', 'desc')
+                ->first();
+            $questionnaireStatus = $questionnaire && $questionnaire->status === 'approved';
+        }
 
         // Pet Owner profile status
         $ownerStatus = $pets->every(function ($pet) {
@@ -2046,6 +2051,7 @@ class AppointmentController extends Controller
             'vaccine_status' => $vaccineStatus,
             'vaccine_message' => $vaccineMessage,
             'vaccine_messages' => $vaccineMessages,
+            'questionnaire_required' => $questionnaireRequired,
             'questionnaire_status' => $questionnaireStatus,
             'available_status' => $available_status,
         ]);
@@ -2106,8 +2112,25 @@ class AppointmentController extends Controller
         }
 
         $service = Service::with('category')->find($request->service);
-        $isWaitListed = $request->boolean('is_wait_listed');
         $selectedPets = PetProfile::whereIn('id', $petIds)->get();
+        $customer = User::find($request->customer);
+        $primaryPet = $selectedPets->firstWhere('id', (int) ($petIds[0] ?? 0));
+
+        if ($customer->requiresAppointmentQuestionnaire()) {
+            $questionnaire = Questionnaire::where('pet_id', optional($primaryPet)->id)
+                ->where('user_id', $customer->id)
+                ->where('service_category_id', $service->category->id)
+                ->orderBy('created_at', 'desc')
+                ->first();
+
+            if (!$questionnaire || $questionnaire->status !== 'approved') {
+                return back()->withErrors([
+                    'pet' => 'Pet questionnaire is not approved.'
+                ])->withInput();
+            }
+        }
+
+        $isWaitListed = $request->boolean('is_wait_listed');
         $selectedRoom = $request->filled('room') ? Room::find($request->room) : null;
         $roomType = $this->getRoomAssignmentType($selectedRoom);
         $assignedKennelId = $request->filled('kennel') ? (int) $request->kennel : null;

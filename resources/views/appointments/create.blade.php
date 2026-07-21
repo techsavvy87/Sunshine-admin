@@ -1670,7 +1670,7 @@
                 validationMessage += '<li>' + message + '</li>';
               });
             }
-            if (!response.questionnaire_status) {
+            if (response.questionnaire_required && !response.questionnaire_status) {
               validationMessage += '<li>Pet questionnaire is not approved.</li>';
             }
             if (!response.available_status) {
