@@ -1945,14 +1945,15 @@
           </div>
         </div>
       </div>
-      @if (isBoardingService($appointment->service) && $appointment->status === 'checked_in')
+      @if (isBoardingService($appointment->service) && in_array($appointment->status, ['checked_in', 'in_progress'], true))
       <div class="card card-border bg-base-100 mt-3">
         <div class="card-body gap-0">
           <div class="bg-base-200 rounded-box collapse collapse-arrow">
             <input aria-label="Collapse trigger" type="checkbox" name="accordion-multiple" />
-            <div class="collapse-title font-medium py-1">Check-in Info</div>
+            <div class="collapse-title font-medium py-1">{{ $appointment->status === 'in_progress' ? 'Care Information' : 'Check-in Info' }}</div>
             <div class="collapse-content bg-base-100">
               <div class="text-sm mt-4 space-y-6">
+                @if ($appointment->status === 'checked_in')
                 <!-- Trip Information -->
                 <div>
                   <p class="font-semibold mb-2 text-base">Trip Information</p>
@@ -1994,6 +1995,7 @@
                     </div>
                   </div>
                 </div>
+                @endif
 
                 @php
                   $flows = ($checkedIn && $checkedIn->flows) ? $checkedIn->flows : [];
@@ -2097,6 +2099,7 @@
                       </div>
                     @endif
 
+                    @if ($appointment->status === 'checked_in')
                     <div>
                       <p class="font-semibold mb-2 text-base">Pet Information</p>
                       <div class="space-y-3 ms-2">
@@ -2155,13 +2158,15 @@
                               placeholder="Please describe items brought for boarding (e.g., Leash, Collar, toys, bedding, etc)">{{ $petOtherItemsDescription }}</textarea>
                           </div>
                         </div>
-                        <div>
-                          <p class="font-medium mb-2">Care notes:</p>
-                          <div class="mt-2">
-                            <textarea class="textarea textarea-bordered w-full boarding-care-notes" rows="2" data-pet-id="{{ $pet->id }}"
-                              placeholder="Add care notes for {{ $pet->name }}...">{{ $petCareNotes }}</textarea>
-                          </div>
-                        </div>
+                      </div>
+                    </div>
+                    @endif
+
+                    <div class="{{ $appointment->status === 'checked_in' ? 'mt-4' : '' }}">
+                      <p class="font-semibold mb-2 text-base">Care Notes</p>
+                      <div class="ms-2">
+                        <textarea class="textarea textarea-bordered w-full boarding-care-notes" rows="3" data-pet-id="{{ $pet->id }}"
+                          placeholder="Add care notes for {{ $pet->name }}...">{{ $petCareNotes }}</textarea>
                       </div>
                     </div>
 
@@ -2374,6 +2379,7 @@
                 @endforeach
                 </div>
 
+                @if ($appointment->status === 'checked_in')
                 <!-- Assignment or location for visit -->
                 <div>
                   <p class="font-semibold mb-2 text-base">Assignment or location for visit</p>
@@ -2421,6 +2427,68 @@
                     </div>
                   </div>
                 </div>
+                @else
+                <div>
+                  <p class="font-semibold mb-2 text-base">Room and Kennel Assignment</p>
+                  <div class="grid grid-cols-1 gap-3 md:grid-cols-2 ms-2">
+                    @php
+                      $currentRoomAssignments = $appointment->family_pet_assignments;
+                    @endphp
+                    @foreach($checkinPets as $pet)
+                      @php
+                        $currentPetAssignment = $currentRoomAssignments[$pet->id] ?? [
+                          'room_id' => $appointment->cat_room_id,
+                          'kennel_id' => $appointment->kennel_id,
+                        ];
+                        $currentPetRoomId = (int) ($currentPetAssignment['room_id'] ?? 0);
+                        $currentPetKennelId = (int) ($currentPetAssignment['kennel_id'] ?? 0);
+                        $currentPetRoom = $careRooms->firstWhere('id', $currentPetRoomId);
+                        $currentPetRoomType = $currentPetRoom->assignment_type ?? 'standard';
+                      @endphp
+                      <fieldset class="fieldset">
+                        <legend class="fieldset-legend">{{ $pet->name }}</legend>
+                        <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                          <label>
+                            <span class="mb-1 block text-xs text-base-content/70">Room</span>
+                            <select class="select select-bordered w-full select-sm boarding-room-assignment" data-pet-id="{{ $pet->id }}">
+                              <option value="">Choose a room</option>
+                              @foreach($careRooms as $room)
+                                <option value="{{ $room->id }}" data-room-type="{{ $room->assignment_type }}" {{ $currentPetRoomId === (int) $room->id ? 'selected' : '' }}>
+                                  {{ $room->name }}
+                                </option>
+                              @endforeach
+                            </select>
+                          </label>
+                          <label>
+                            <span class="mb-1 block text-xs text-base-content/70">Kennel</span>
+                            <select class="select select-bordered w-full select-sm boarding-kennel-assignment" data-pet-id="{{ $pet->id }}" {{ $currentPetRoomType === 'space' ? 'disabled' : '' }}>
+                              <option value="">{{ $currentPetRoomType === 'space' ? 'No kennel required' : 'Choose a kennel' }}</option>
+                              @foreach($careRooms as $room)
+                                @foreach($room->available_kennels as $kennel)
+                                  <option
+                                    value="{{ $kennel->id }}"
+                                    data-room-id="{{ $room->id }}"
+                                    {{ $currentPetRoomId !== (int) $room->id ? 'hidden disabled' : '' }}
+                                    {{ $currentPetKennelId === (int) $kennel->id ? 'selected' : '' }}
+                                  >
+                                    {{ $kennel->name }}
+                                  </option>
+                                @endforeach
+                              @endforeach
+                            </select>
+                          </label>
+                        </div>
+                      </fieldset>
+                    @endforeach
+                  </div>
+                </div>
+                <div class="flex items-center justify-end gap-3">
+                  <span id="care_information_save_status" class="text-xs text-base-content/60"></span>
+                  <button type="button" id="save_care_information" class="btn btn-primary btn-sm">
+                    Save Care Information
+                  </button>
+                </div>
+                @endif
 
                 @if ($appointment->status === 'checked_in')
                 {{-- Check-in Info (combined with Boarding Check-In for boarding) --}}
@@ -3775,6 +3843,31 @@
         toggleBoardingMedicationCustomTime($(this));
       });
     });
+
+    $('.boarding-room-assignment').on('change', function() {
+      const petId = String($(this).data('pet-id'));
+      const roomId = String($(this).val() || '');
+      const roomType = String($(this).find('option:selected').data('room-type') || 'standard');
+      const $kennelSelect = $('.boarding-kennel-assignment[data-pet-id="' + petId + '"]');
+      const isSpaceRoom = roomType === 'space';
+
+      $kennelSelect.val('');
+      $kennelSelect.find('option[data-room-id]').each(function() {
+        const belongsToRoom = String($(this).data('room-id')) === roomId;
+        $(this).prop('hidden', !belongsToRoom).prop('disabled', !belongsToRoom);
+      });
+      $kennelSelect.prop('disabled', isSpaceRoom || !roomId);
+      $kennelSelect.find('option:first').text(isSpaceRoom ? 'No kennel required' : 'Choose a kennel');
+      $('#care_information_save_status').text('Unsaved changes');
+    });
+
+    $('.boarding-kennel-assignment').on('change', function() {
+      $('#care_information_save_status').text('Unsaved changes');
+    });
+
+    $('#save_care_information').on('click', function() {
+      saveBoardingCheckinData(true);
+    });
     initializeBoardingSignaturePad();
     @endif
 
@@ -4600,7 +4693,13 @@
     });
   }
 
-  function saveBoardingCheckinData() {
+  function saveBoardingCheckinData(forceOnPropertySave = false) {
+    const isOnPropertyCareEdit = '{{ $appointment->status }}' === 'in_progress';
+    if (isOnPropertyCareEdit && !forceOnPropertySave) {
+      $('#care_information_save_status').text('Unsaved changes');
+      return null;
+    }
+
     const petSpecific = {};
     const allMedications = [];
     const allDryFood = [];
@@ -4785,19 +4884,50 @@
       location_details: $('#boarding_location_details').val() || null
     };
 
+    const roomAssignments = {};
+    $('.boarding-room-assignment').each(function() {
+      const petId = String($(this).data('pet-id'));
+      const $kennelSelect = $('.boarding-kennel-assignment[data-pet-id="' + petId + '"]');
+      roomAssignments[petId] = {
+        room_id: $(this).val() || null,
+        kennel_id: $kennelSelect.prop('disabled') ? null : ($kennelSelect.val() || null)
+      };
+    });
+    const $careSaveButton = $('#save_care_information');
+    const $careSaveStatus = $('#care_information_save_status');
+
+    if (isOnPropertyCareEdit) {
+      $careSaveButton.prop('disabled', true);
+      $careSaveStatus.text('Saving...');
+    }
+
     // Send AJAX request
     return $.ajax({
-      url: '{{ route("update-checkin-flows", $appointment->id) }}',
+      url: isOnPropertyCareEdit
+        ? '{{ route("update-on-property-care-information", $appointment->id) }}'
+        : '{{ route("update-checkin-flows", $appointment->id) }}',
       method: 'POST',
       data: {
         _token: '{{ csrf_token() }}',
-        flows: boardingData
+        flows: boardingData,
+        room_assignments: isOnPropertyCareEdit ? roomAssignments : undefined
       },
       success: function(response) {
         console.log('Boarding check-in data saved successfully');
+        if (isOnPropertyCareEdit) {
+          $careSaveStatus.text('Saved');
+        }
       },
       error: function(xhr, status, error) {
         console.error('Error saving boarding check-in data:', error);
+        if (isOnPropertyCareEdit) {
+          $careSaveStatus.text((xhr.responseJSON && xhr.responseJSON.message) || 'Unable to save');
+        }
+      },
+      complete: function() {
+        if (isOnPropertyCareEdit) {
+          $careSaveButton.prop('disabled', false);
+        }
       }
     });
   }

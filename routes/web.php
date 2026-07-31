@@ -295,6 +295,7 @@ Route::middleware(['auth'])->group(function () {
         Route::post('/appointment/delete', 'delete')->name('delete-appointment')->middleware('ensure.permission:3,can_delete');
         Route::post('/appointment/pending/confirm', 'confirmPending')->name('confirm-pending-appointment')->middleware('ensure.permission:3,can_update');
         Route::post('/appointment/{id}/checkin/flows', 'updateCheckinFlows')->name('update-checkin-flows')->middleware('ensure.permission:3,can_update');
+        Route::post('/appointment/{id}/care-information', 'updateOnPropertyCareInformation')->name('update-on-property-care-information')->middleware('ensure.permission:3,can_update');
         Route::post('/appointment/{id}/checkin/confirm', 'confirmCheckedIn')->name('confirm-checked-in-appointment')->middleware('ensure.permission:3,can_update');
         Route::post('/appointment/{id}/process/flows', 'updateProcessFlows')->name('update-process-flows')->middleware('ensure.permission:3,can_update');
         Route::get('/appointment/{id}/process/flows', 'getProcessFlows')->name('get-process-flows')->middleware('ensure.permission:3,can_read');

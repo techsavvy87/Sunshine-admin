@@ -22,6 +22,7 @@ use App\Models\Discount;
 use App\Models\PetBehavior;
 use App\Models\IncidentReport;
 use App\Models\Kennel;
+use App\Models\Room;
 use App\Services\InvoicePaymentService;
 use Illuminate\Support\Collection;
 use Carbon\Carbon;
@@ -679,7 +680,39 @@ class DashboardController extends Controller
         $assignmentLabel = $assignmentLocation['label'];
         $staySummary = $this->buildCheckoutStaySummary($appointment, $checkedIn);
 
-        return view('dashboard.appointment', compact('appointment', 'staffs', 'checkedIn', 'process', 'checkout', 'invoice', 'additionalServices', 'lastAppointmentRatings', 'invoiceDiscountRules', 'petBehaviors', 'dbEstimatedPrice', 'assignmentLabel', 'staySummary', 'lateCheckoutDaycareFeeDisplay', 'paymentSummary', 'invoiceTransactions'));
+        $careRooms = collect();
+        if (isBoardingService($appointment->service)) {
+            $currentAssignments = collect($appointment->family_pet_assignments);
+            $selectedRoomIds = $currentAssignments->pluck('room_id')
+                ->push($appointment->cat_room_id)
+                ->filter()
+                ->map(fn ($roomId) => (int) $roomId);
+            $selectedKennelIds = $currentAssignments->pluck('kennel_id')
+                ->push($appointment->kennel_id)
+                ->filter()
+                ->map(fn ($kennelId) => (int) $kennelId);
+
+            $careRooms = Room::where(function ($query) use ($selectedRoomIds) {
+                    $query->where('status', '!=', 'Out of Service')
+                        ->orWhereIn('id', $selectedRoomIds);
+                })
+                ->orderBy('name')
+                ->get()
+                ->map(function ($room) use ($selectedKennelIds) {
+                    $room->assignment_type = in_array('space', $room->room_type_array, true) ? 'space' : 'standard';
+                    $room->available_kennels = Kennel::whereIn('id', $room->kennel_id_array)
+                        ->where(function ($query) use ($selectedKennelIds) {
+                            $query->where('status', 'In Service')
+                                ->orWhereIn('id', $selectedKennelIds);
+                        })
+                        ->orderBy('name')
+                        ->get(['id', 'name']);
+
+                    return $room;
+                });
+        }
+
+        return view('dashboard.appointment', compact('appointment', 'staffs', 'checkedIn', 'process', 'checkout', 'invoice', 'additionalServices', 'lastAppointmentRatings', 'invoiceDiscountRules', 'petBehaviors', 'dbEstimatedPrice', 'assignmentLabel', 'staySummary', 'lateCheckoutDaycareFeeDisplay', 'paymentSummary', 'invoiceTransactions', 'careRooms'));
     }
 
     private function buildCheckoutStaySummary(Appointment $appointment, ?Checkin $checkin): array

@@ -3550,6 +3550,157 @@ class AppointmentController extends Controller
         ]);
     }
 
+    public function updateOnPropertyCareInformation(Request $request, $id)
+    {
+        $appointment = Appointment::with('service')->find($id);
+
+        if (!$appointment) {
+            return response()->json(['success' => false, 'message' => 'Appointment not found.'], 404);
+        }
+
+        if ($appointment->status !== 'in_progress' || !isBoardingService($appointment->service)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Care information can only be updated while a boarding appointment is On Property.',
+            ], 422);
+        }
+
+        $validated = $request->validate([
+            'flows' => 'required|array',
+            'room_assignments' => 'required|array',
+            'room_assignments.*.room_id' => 'required|integer|exists:rooms,id',
+            'room_assignments.*.kennel_id' => 'nullable|integer|exists:kennels,id',
+        ]);
+
+        $checkIn = Checkin::firstOrNew(['appointment_id' => $appointment->id]);
+        $existingFlows = [];
+        if (!empty($checkIn->flows)) {
+            $decodedFlows = is_array($checkIn->flows) ? $checkIn->flows : json_decode($checkIn->flows, true);
+            $existingFlows = is_array($decodedFlows) ? $decodedFlows : [];
+        }
+
+        $incomingFlows = $validated['flows'];
+        $careFlowKeys = [
+            'dry_food_list', 'dry_food', 'wet_food_list', 'wet_food',
+            'meds', 'meds_list', 'medications', 'medications_am', 'medications_pm',
+            'feeding_am', 'feeding_pm', 'feeding_lunch', 'pet_notes',
+        ];
+
+        foreach ($careFlowKeys as $key) {
+            if (array_key_exists($key, $incomingFlows)) {
+                $existingFlows[$key] = $incomingFlows[$key];
+            }
+        }
+
+        $existingPetSpecific = is_array($existingFlows['pet_specific'] ?? null)
+            ? $existingFlows['pet_specific']
+            : [];
+        $incomingPetSpecific = is_array($incomingFlows['pet_specific'] ?? null)
+            ? $incomingFlows['pet_specific']
+            : [];
+        $petCareKeys = ['care_notes', 'dry_food_list', 'dry_food', 'wet_food_list', 'wet_food', 'meds_list', 'meds'];
+
+        foreach ($incomingPetSpecific as $petId => $incomingPetFlows) {
+            if (!is_array($incomingPetFlows)) {
+                continue;
+            }
+
+            $petFlows = is_array($existingPetSpecific[$petId] ?? null)
+                ? $existingPetSpecific[$petId]
+                : [];
+
+            foreach ($petCareKeys as $key) {
+                if (array_key_exists($key, $incomingPetFlows)) {
+                    $petFlows[$key] = $incomingPetFlows[$key];
+                }
+            }
+
+            $existingPetSpecific[$petId] = $petFlows;
+        }
+
+        $existingFlows['pet_specific'] = $existingPetSpecific;
+        $checkIn->flows = json_encode($existingFlows);
+
+        $allowedPetIds = collect($appointment->family_pet_ids)
+            ->map(fn ($petId) => (int) $petId)
+            ->filter()
+            ->values();
+
+        if ($allowedPetIds->isEmpty() && $appointment->pet_id) {
+            $allowedPetIds = collect([(int) $appointment->pet_id]);
+        }
+
+        $roomAssignments = collect($validated['room_assignments'])
+            ->mapWithKeys(function ($assignment, $petId) {
+                return [(int) $petId => [
+                    'room_id' => (int) ($assignment['room_id'] ?? 0),
+                    'kennel_id' => !empty($assignment['kennel_id']) ? (int) $assignment['kennel_id'] : null,
+                ]];
+            })
+            ->all();
+
+        if (
+            collect(array_keys($roomAssignments))->sort()->values()->all() !== $allowedPetIds->sort()->values()->all()
+        ) {
+            return response()->json(['success' => false, 'message' => 'A room assignment is required for every pet.'], 422);
+        }
+
+        $startDateTime = Carbon::parse($appointment->date . ' ' . ($appointment->start_time ?: '00:00:00'));
+        $endDateTime = Carbon::parse(
+            ($appointment->end_date ?: $appointment->date) . ' ' . ($appointment->end_time ?: '23:59:59')
+        );
+        $assignmentConflict = $this->buildFamilyPetAssignmentConflictPayload(
+            $roomAssignments,
+            $startDateTime,
+            $endDateTime,
+            (int) $appointment->id
+        );
+
+        if (!empty($assignmentConflict['conflict'])) {
+            return response()->json([
+                'success' => false,
+                'message' => $assignmentConflict['message'] ?? 'The selected room or kennel is not available.',
+                'conflict' => $assignmentConflict,
+            ], 422);
+        }
+
+        $oldPrimaryRoomId = (int) ($appointment->cat_room_id ?? 0);
+        $primaryAssignment = collect($roomAssignments)->sortKeys()->first();
+        $primaryRoomId = (int) ($primaryAssignment['room_id'] ?? 0);
+        $primaryKennelId = (int) ($primaryAssignment['kennel_id'] ?? 0);
+        $metadata = is_array($appointment->metadata) ? $appointment->metadata : [];
+        $metadata['family_pet_assignments'] = $roomAssignments;
+        $metadata['family_kennel_assignments'] = collect($roomAssignments)
+            ->map(fn ($assignment) => $assignment['kennel_id'] ?? null)
+            ->filter()
+            ->all();
+        $metadata['assignment_room_id'] = $primaryRoomId ?: null;
+        $metadata['assignment_room_name'] = optional(Room::find($primaryRoomId))->name;
+        $metadata['assignment_kennel_id'] = $primaryKennelId ?: null;
+        $metadata['assignment_kennel_name'] = optional(Kennel::find($primaryKennelId))->name;
+
+        $appointment->metadata = $metadata;
+        $appointment->cat_room_id = $primaryRoomId ?: null;
+        $appointment->kennel_id = $primaryKennelId ?: null;
+        $appointment->save();
+
+        if ($oldPrimaryRoomId && $oldPrimaryRoomId !== $primaryRoomId) {
+            $this->releaseCatRoomIfUnused($oldPrimaryRoomId, $appointment->id);
+        }
+
+        $primaryRoom = $primaryRoomId ? Room::find($primaryRoomId) : null;
+        if ($primaryRoom && $this->getRoomAssignmentType($primaryRoom) === 'space') {
+            $this->markCatRoomOutOfService($primaryRoomId);
+        }
+
+        $checkIn->save();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Care information saved successfully.',
+        ]);
+    }
+
     public function confirmCheckedIn(Request $request, $id)
     {
         $appointment = Appointment::find($id);
