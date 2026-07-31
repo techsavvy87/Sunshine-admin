@@ -1673,9 +1673,6 @@
             if (response.questionnaire_required && !response.questionnaire_status) {
               validationMessage += '<li>Pet questionnaire is not approved.</li>';
             }
-            if (!response.available_status) {
-              validationMessage += '<li>Online booking is currently limited due to high demand.</li>';
-            }
             if (validationMessage) {
               validationMessage = `Please address the following issues before creating the appointment:<br>
                 <ul style="list-style: disc; font-size: 14px; padding-left: 24px; padding-top: 6px;">${validationMessage}</ul>`;
