@@ -28,6 +28,7 @@ use App\Models\Kennel;
 use App\Models\Room;
 use App\Services\AppointmentBookingNotifier;
 use App\Services\InvoicePaymentService;
+use App\Services\BoardingCareScheduleService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Mail;
@@ -3695,9 +3696,24 @@ class AppointmentController extends Controller
 
         $checkIn->save();
 
+        $stayStart = Carbon::parse($appointment->date)->startOfDay();
+        $stayEnd = Carbon::parse($appointment->end_date ?: $appointment->date)->startOfDay();
+        $effectiveDate = Carbon::today()->max($stayStart)->min($stayEnd)->toDateString();
+
+        $scheduleResult = app(BoardingCareScheduleService::class)->regenerate(
+            $appointment,
+            $existingFlows,
+            $effectiveDate
+        );
+        appointment_audit_log(
+            $appointment->id,
+            'Care plan updated effective ' . $effectiveDate . ' (past and completed tasks preserved).'
+        );
+
         return response()->json([
             'success' => true,
             'message' => 'Care information saved successfully.',
+            'schedule' => $scheduleResult,
         ]);
     }
 
@@ -3798,6 +3814,15 @@ class AppointmentController extends Controller
         $checkIn->date = $request->date;
         $checkIn->notes = $request->notes;
         $checkIn->save();
+
+        if ($isBoardingService) {
+            $careFlows = !empty($checkIn->flows) ? json_decode($checkIn->flows, true) : [];
+            app(BoardingCareScheduleService::class)->regenerate(
+                $appointment,
+                is_array($careFlows) ? $careFlows : [],
+                $appointment->date
+            );
+        }
 
         if (!$isBoardingService) {
             $process = Process::where('appointment_id', $appointment->id)->first();

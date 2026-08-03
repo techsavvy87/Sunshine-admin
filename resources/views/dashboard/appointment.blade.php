@@ -2430,11 +2430,12 @@
                 @else
                 <div>
                   <p class="font-semibold mb-2 text-base">Room and Kennel Assignment</p>
-                  <div class="grid grid-cols-1 gap-3 md:grid-cols-2 ms-2">
-                    @php
-                      $currentRoomAssignments = $appointment->family_pet_assignments;
-                    @endphp
-                    @foreach($checkinPets as $pet)
+                  <div class="flex flex-col gap-3 ms-2 md:flex-row md:items-end">
+                    <div class="grid min-w-0 flex-1 grid-cols-1 gap-3 md:grid-cols-2">
+                      @php
+                        $currentRoomAssignments = $appointment->family_pet_assignments;
+                      @endphp
+                      @foreach($checkinPets as $pet)
                       @php
                         $currentPetAssignment = $currentRoomAssignments[$pet->id] ?? [
                           'room_id' => $appointment->cat_room_id,
@@ -2478,16 +2479,62 @@
                             </select>
                           </label>
                         </div>
-                      </fieldset>
-                    @endforeach
+                        </fieldset>
+                      @endforeach
+                    </div>
+                    <div class="flex shrink-0 items-center justify-end gap-3 pb-1">
+                      <span id="care_information_save_status" class="text-xs text-base-content/60"></span>
+                      <button type="button" id="save_care_information" class="btn btn-primary btn-sm whitespace-nowrap">
+                        Save Care Information
+                      </button>
+                    </div>
                   </div>
                 </div>
-                <div class="flex items-center justify-end gap-3">
-                  <span id="care_information_save_status" class="text-xs text-base-content/60"></span>
-                  <button type="button" id="save_care_information" class="btn btn-primary btn-sm">
-                    Save Care Information
-                  </button>
-                </div>
+                @endif
+
+                @if ($appointment->status === 'in_progress')
+                  <div class="mt-6 space-y-3">
+                    <div>
+                      <h4 class="font-semibold text-base">Entire Stay Care Schedule</h4>
+                    </div>
+                    @forelse($entireCareSchedule as $careDay)
+                      <div class="border border-base-300 rounded-box overflow-hidden">
+                        <p class="bg-base-200 px-3 py-2 font-medium">{{ \Carbon\Carbon::parse($careDay['date'])->format('D, M j, Y') }}</p>
+                        @if(empty($careDay['tasks']))
+                          <p class="px-3 py-3 text-sm text-base-content/60">No feeding or medication tasks scheduled.</p>
+                        @else
+                          <div class="overflow-x-auto">
+                            <table class="table table-sm w-full">
+                              <thead><tr><th>Pet</th><th>Care</th><th>Time</th><th>Item</th><th>Instructions</th><th>Status</th></tr></thead>
+                              <tbody>
+                                @foreach($careDay['tasks'] as $careTask)
+                                  <tr>
+                                    <td>{{ $careTask['pet_name'] ?? 'Pet' }}</td>
+                                    <td class="capitalize">{{ $careTask['type'] ?? '' }}</td>
+                                    <td>{{ $careTask['slot'] ?? '' }}</td>
+                                    <td>{{ $careTask['name'] ?? '' }}</td>
+                                    <td>
+                                      {{ $careTask['instructions'] ?? '' }}
+                                      @if(!empty($careTask['meal_condition']))
+                                        <span class="text-xs text-base-content/60">({{ str_replace('_', ' ', $careTask['meal_condition']) }})</span>
+                                      @endif
+                                    </td>
+                                    <td>
+                                      <span class="badge badge-sm {{ ($careTask['status'] ?? 'pending') === 'completed' ? 'badge-success' : 'badge-ghost' }}">
+                                        {{ ucfirst($careTask['status'] ?? 'pending') }}
+                                      </span>
+                                    </td>
+                                  </tr>
+                                @endforeach
+                              </tbody>
+                            </table>
+                          </div>
+                        @endif
+                      </div>
+                    @empty
+                      <div class="alert"><span>The care schedule will be generated when check-in is confirmed.</span></div>
+                    @endforelse
+                  </div>
                 @endif
 
                 @if ($appointment->status === 'checked_in')
@@ -4915,7 +4962,12 @@
       success: function(response) {
         console.log('Boarding check-in data saved successfully');
         if (isOnPropertyCareEdit) {
-          $careSaveStatus.text('Saved');
+          const schedule = response.schedule || {};
+          const regeneratedCount = (schedule.created || 0) + (schedule.replaced || 0);
+          $careSaveStatus.text(`Saved — ${regeneratedCount} task${regeneratedCount === 1 ? '' : 's'} regenerated`);
+          window.setTimeout(function() {
+            window.location.reload();
+          }, 250);
         }
       },
       error: function(xhr, status, error) {

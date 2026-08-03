@@ -23,7 +23,9 @@ use App\Models\PetBehavior;
 use App\Models\IncidentReport;
 use App\Models\Kennel;
 use App\Models\Room;
+use App\Models\BoardingCareTask;
 use App\Services\InvoicePaymentService;
+use App\Services\BoardingCareScheduleService;
 use Illuminate\Support\Collection;
 use Carbon\Carbon;
 use Barryvdh\DomPDF\Facade\Pdf;
@@ -679,6 +681,45 @@ class DashboardController extends Controller
         $assignmentLocation = $this->getAppointmentAssignmentLocation($appointment);
         $assignmentLabel = $assignmentLocation['label'];
         $staySummary = $this->buildCheckoutStaySummary($appointment, $checkedIn);
+        $entireCareSchedule = collect();
+        if (isBoardingService($appointment->service)) {
+            if (!BoardingCareTask::where('appointment_id', $appointment->id)->exists()) {
+                $checkinCareFlows = $this->decodeDashboardJsonToArray(optional($checkedIn)->flows);
+                app(BoardingCareScheduleService::class)->regenerate(
+                    $appointment,
+                    $checkinCareFlows,
+                    $appointment->date
+                );
+            }
+
+            Process::where('appointment_id', $appointment->id)
+                ->whereBetween('date', [$appointment->date, $appointment->end_date ?: $appointment->date])
+                ->get()
+                ->each(function (Process $dailyProcess) use ($appointment) {
+                    $flows = $this->decodeDashboardJsonToArray($dailyProcess->flows);
+                    app(BoardingCareScheduleService::class)->syncCompletedStatuses(
+                        $appointment,
+                        $dailyProcess->date,
+                        $flows
+                    );
+                });
+
+            $entireCareSchedule = BoardingCareTask::where('appointment_id', $appointment->id)
+                ->whereBetween('task_date', [
+                    $appointment->date,
+                    $appointment->end_date ?: $appointment->date,
+                ])
+                ->orderBy('task_date')
+                ->orderBy('slot')
+                ->get()
+                ->groupBy(fn (BoardingCareTask $task) => $task->task_date->toDateString())
+                ->map(function ($tasks, $date) {
+                    return [
+                        'date' => $date,
+                        'tasks' => $tasks->map(fn (BoardingCareTask $task) => $task->toArray())->all(),
+                    ];
+                })->values();
+        }
 
         $careRooms = collect();
         if (isBoardingService($appointment->service)) {
@@ -712,7 +753,7 @@ class DashboardController extends Controller
                 });
         }
 
-        return view('dashboard.appointment', compact('appointment', 'staffs', 'checkedIn', 'process', 'checkout', 'invoice', 'additionalServices', 'lastAppointmentRatings', 'invoiceDiscountRules', 'petBehaviors', 'dbEstimatedPrice', 'assignmentLabel', 'staySummary', 'lateCheckoutDaycareFeeDisplay', 'paymentSummary', 'invoiceTransactions', 'careRooms'));
+        return view('dashboard.appointment', compact('appointment', 'staffs', 'checkedIn', 'process', 'checkout', 'invoice', 'additionalServices', 'lastAppointmentRatings', 'invoiceDiscountRules', 'petBehaviors', 'dbEstimatedPrice', 'assignmentLabel', 'staySummary', 'lateCheckoutDaycareFeeDisplay', 'paymentSummary', 'invoiceTransactions', 'careRooms', 'entireCareSchedule'));
     }
 
     private function buildCheckoutStaySummary(Appointment $appointment, ?Checkin $checkin): array
@@ -2007,6 +2048,7 @@ class DashboardController extends Controller
                 $process->save();
 
                 $this->syncBoardingFleaTickFromProcessFlows($appointment, $mergedFlows);
+                app(BoardingCareScheduleService::class)->syncCompletedStatuses($appointment, $date, $mergedFlows);
                 $savedCount++;
             } catch (\Exception $e) {
                 $errors[] = "Error saving process for appointment ID {$appointmentId}: " . $e->getMessage();
@@ -2357,6 +2399,7 @@ class DashboardController extends Controller
                 $appointment = Appointment::with(['service.category', 'pet'])->find($proc->appointment_id);
                 if ($appointment) {
                     $this->syncBoardingFleaTickFromProcessFlows($appointment, $mergedFlows);
+                    app(BoardingCareScheduleService::class)->syncCompletedStatuses($appointment, $proc->date, $mergedFlows);
                 }
                 $updatedCount++;
             } catch (\Exception $e) {
