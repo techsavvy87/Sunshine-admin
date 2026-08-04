@@ -2514,14 +2514,26 @@
   }
 
   function getMedicationRowsFromFlows(flows) {
-    const rows = Array.isArray(flows.meds_list) ? flows.meds_list.filter(item => item && typeof item === 'object') : [];
+    const normalizeMedicationRow = function(row) {
+      const medicationRow = row && typeof row === 'object' ? { ...row } : {};
+      let mealCondition = String(medicationRow.meal_condition || medicationRow.condition || '').trim();
+      if (mealCondition === 'after_meals') {
+        mealCondition = 'after_meal';
+      }
+      if (mealCondition) {
+        medicationRow.meal_condition = mealCondition;
+      }
+      return medicationRow;
+    };
+
+    const rows = Array.isArray(flows.meds_list) ? flows.meds_list.filter(item => item && typeof item === 'object').map(normalizeMedicationRow) : [];
     if (rows.length > 0) {
       return rows;
     }
 
     const fallback = flows.meds || {};
     if (fallback.name || fallback.amount || isFlowChecked(fallback.dispense_am) || isFlowChecked(fallback.dispense_pm) || isFlowChecked(fallback.dispense_rest) || isFlowChecked(fallback.dispense_prn)) {
-      return [fallback];
+      return [normalizeMedicationRow(fallback)];
     }
 
     return [];
@@ -2601,10 +2613,25 @@
         }
       }
 
+      let mealCondition = String((row.meal_condition || row.condition || '')).trim();
+      if (mealCondition === 'after_meals') {
+        mealCondition = 'after_meal';
+      }
+      const mealConditionLabels = {
+        after_meal: 'After Meal',
+        before_meal: 'Before Meal',
+        empty_stomach: 'Empty Stomach'
+      };
+      const mealConditionLabel = mealConditionLabels[mealCondition] || '';
+
       const parts = [];
       if (row.name) parts.push(row.name);
       if (row.amount) parts.push(row.amount);
-      if (labels.length > 0) parts.push(labels.join(' + '));
+
+      if (labels.length > 0 || mealConditionLabel) {
+        const timingLabel = labels.join(' + ');
+        parts.push(mealConditionLabel && timingLabel ? `${timingLabel} — ${mealConditionLabel}` : (timingLabel || mealConditionLabel));
+      }
 
       return parts.join(' ').trim();
     }).filter(Boolean);

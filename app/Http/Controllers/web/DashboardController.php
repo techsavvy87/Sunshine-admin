@@ -2082,6 +2082,23 @@ class DashboardController extends Controller
             'appointment_ids.*' => 'exists:appointments,id'
         ]);
 
+        $normalizeMedicationRow = function ($row) {
+            if (!is_array($row)) {
+                return [];
+            }
+
+            $mealCondition = trim((string) ($row['meal_condition'] ?? $row['condition'] ?? ''));
+            if ($mealCondition === 'after_meals') {
+                $mealCondition = 'after_meal';
+            }
+
+            if ($mealCondition !== '') {
+                $row['meal_condition'] = $mealCondition;
+            }
+
+            return $row;
+        };
+
         $appointmentIds = $request->input('appointment_ids');
         $data = [];
 
@@ -2150,6 +2167,14 @@ class DashboardController extends Controller
                 $wetFoodList = is_array($effectiveFlows['wet_food_list'] ?? null) ? $effectiveFlows['wet_food_list'] : [];
                 $meds = $effectiveFlows['meds'] ?? [];
                 $medsList = is_array($effectiveFlows['meds_list'] ?? null) ? $effectiveFlows['meds_list'] : [];
+
+                if (!empty($medsList)) {
+                    $effectiveFlows['meds_list'] = array_values(array_map($normalizeMedicationRow, $medsList));
+                }
+
+                if (is_array($meds)) {
+                    $effectiveFlows['meds'] = $normalizeMedicationRow($meds);
+                }
 
                 $lunchDry = ! empty($dryFood['dispense_lunch']) && ($dryFood['dispense_lunch'] === true || $dryFood['dispense_lunch'] === 'true');
                 $lunchWet = ! empty($wetFood['dispense_lunch']) && ($wetFood['dispense_lunch'] === true || $wetFood['dispense_lunch'] === 'true');
