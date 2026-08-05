@@ -880,14 +880,30 @@ class DashboardController extends Controller
 
                 $reportsAm = $flows['reports_am'] ?? [];
                 if ($this->staySummaryStepAppliesToWorkflow($reportsAm, $workflowCandidates)) {
+                    $amStatus = strtolower(trim((string) $this->staySummaryGetFlowValueForCandidates($reportsAm['statuses'] ?? [], $workflowCandidates)));
+                    if ($amStatus === '') {
+                        $amStatus = trim((string) $this->staySummaryGetFlowValueForCandidates(data_get($flows, 'feeding_am.partial_meal_notes', []), $workflowCandidates)) !== ''
+                            ? 'partial_meal'
+                            : 'dne';
+                    }
                     $amIssue = trim((string) $this->staySummaryGetFlowValueForCandidates($reportsAm['issues'] ?? [], $workflowCandidates));
-                    $dnes[] = $amIssue !== '' ? 'Do not eat AM meals - ' . $amIssue : 'Do not eat AM meals';
+                    $dnes[] = $amStatus === 'partial_meal'
+                        ? ($amIssue !== '' ? 'Partial AM meal - ' . $amIssue : 'Partial AM meal')
+                        : ($amIssue !== '' ? 'Do not eat AM meals - ' . $amIssue : 'Do not eat AM meals');
                 }
 
                 $reportsPm = $flows['reports_pm'] ?? [];
                 if ($this->staySummaryStepAppliesToWorkflow($reportsPm, $workflowCandidates)) {
+                    $pmStatus = strtolower(trim((string) $this->staySummaryGetFlowValueForCandidates($reportsPm['statuses'] ?? [], $workflowCandidates)));
+                    if ($pmStatus === '') {
+                        $pmStatus = trim((string) $this->staySummaryGetFlowValueForCandidates(data_get($flows, 'feeding_pm.partial_meal_notes', []), $workflowCandidates)) !== ''
+                            ? 'partial_meal'
+                            : 'dne';
+                    }
                     $pmIssue = trim((string) $this->staySummaryGetFlowValueForCandidates($reportsPm['issues'] ?? [], $workflowCandidates));
-                    $dnes[] = $pmIssue !== '' ? 'Do not eat PM meals - ' . $pmIssue : 'Do not eat PM meals';
+                    $dnes[] = $pmStatus === 'partial_meal'
+                        ? ($pmIssue !== '' ? 'Partial PM meal - ' . $pmIssue : 'Partial PM meal')
+                        : ($pmIssue !== '' ? 'Do not eat PM meals - ' . $pmIssue : 'Do not eat PM meals');
                 }
 
                 $checkData = $this->staySummaryGetFlowValueForCandidates(data_get($flows, 'check_pet.check_data', []), $workflowCandidates);
@@ -2286,6 +2302,7 @@ class DashboardController extends Controller
                 'success' => true,
                 'yesterday_pet_ids' => [],
                 'yesterday_reports_pm_issues' => [],
+                'yesterday_reports_pm_statuses' => [],
             ]);
         }
 
@@ -2359,11 +2376,14 @@ class DashboardController extends Controller
 
         $yesterdayReportsPmIssues = isset($reportsPm['issues']) && is_array($reportsPm['issues'])
             ? $reportsPm['issues'] : [];
+        $yesterdayReportsPmStatuses = isset($reportsPm['statuses']) && is_array($reportsPm['statuses'])
+            ? $reportsPm['statuses'] : [];
 
         return response()->json([
             'success' => true,
             'yesterday_pet_ids' => array_values(array_unique($selectedIds)),
             'yesterday_reports_pm_issues' => $yesterdayReportsPmIssues,
+            'yesterday_reports_pm_statuses' => $yesterdayReportsPmStatuses,
         ]);
     }
 

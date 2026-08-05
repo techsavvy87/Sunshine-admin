@@ -666,11 +666,15 @@
                       if (!empty($flows)) {
                         $reportsAmIds = array_map('intval', (array) ($flows['reports_am']['selected_pet_ids'] ?? []));
                         $reportsPmIds = array_map('intval', (array) ($flows['reports_pm']['selected_pet_ids'] ?? []));
+                        $reportsAmStatuses = is_array($flows['reports_am']['statuses'] ?? null) ? $flows['reports_am']['statuses'] : [];
+                        $reportsPmStatuses = is_array($flows['reports_pm']['statuses'] ?? null) ? $flows['reports_pm']['statuses'] : [];
                         if (in_array((int) $appointmentId, $reportsAmIds, true)) {
-                          $rowIssues[] = 'Do not eat AM Meals';
+                          $reportAmStatus = strtolower(trim((string) ($reportsAmStatuses[$appointmentId] ?? $reportsAmStatuses[(string) $appointmentId] ?? '')));
+                          $rowIssues[] = $reportAmStatus === 'partial_meal' ? 'Partial AM Meal' : 'Do not eat AM Meals';
                         }
                         if (in_array((int) $appointmentId, $reportsPmIds, true)) {
-                          $rowIssues[] = 'Do not eat PM Meals';
+                          $reportPmStatus = strtolower(trim((string) ($reportsPmStatuses[$appointmentId] ?? $reportsPmStatuses[(string) $appointmentId] ?? '')));
+                          $rowIssues[] = $reportPmStatus === 'partial_meal' ? 'Partial PM Meal' : 'Do not eat PM Meals';
                         }
                         $checkData = $flows['check_pet']['check_data'][$appointmentId] ?? [];
                         if (is_array($checkData)) {
@@ -782,11 +786,11 @@
                         };
                         if ($hasNoseTailIssues && !empty($flows['nose_tail_time'])) {
                           $rowTime = $parseTime($flows['nose_tail_time']) ?: $rowTime;
-                        } elseif (in_array('Do not eat AM Meals', $rowIssues, true)) {
+                        } elseif (in_array('Do not eat AM Meals', $rowIssues, true) || in_array('Partial AM Meal', $rowIssues, true)) {
                           $ram = $flows['reports_am'] ?? null;
                           $t = (is_array($ram) ? ($ram['process_time'] ?? $ram['processTime'] ?? null) : null) ?: ($flows['am_meal_dispense_time'] ?? null);
                           if ($t) $rowTime = $parseTime($t) ?: $rowTime;
-                        } elseif (in_array('Do not eat PM Meals', $rowIssues, true)) {
+                        } elseif (in_array('Do not eat PM Meals', $rowIssues, true) || in_array('Partial PM Meal', $rowIssues, true)) {
                           $rpm = $flows['reports_pm'] ?? null;
                           $t = (is_array($rpm) ? ($rpm['process_time'] ?? $rpm['processTime'] ?? null) : null) ?: ($flows['pm_meal_dispense_time'] ?? null);
                           if ($t) $rowTime = $parseTime($t) ?: $rowTime;

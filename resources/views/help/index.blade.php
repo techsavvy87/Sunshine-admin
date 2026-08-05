@@ -256,7 +256,7 @@
           <input type="radio" aria-label="Accordion radio" class="cursor-pointer" name="accordion" />
           <div class="collapse-title cursor-pointer">How do I generate time slots for a service?</div>
           <div class="collapse-content">
-            Go to Time Slots, select a service, choose a date, click "Generate", select a start date and end date (up to 30 days), review holidays in the period, and click "Confirm" to generate time slots.
+            Go to Time Slots, select a service, choose a date, click "Generate", select a start date and end date (up to 12 months), review holidays in the period, and click "Confirm" to generate time slots.
           </div>
         </div>
         <div class="collapse-plus collapse">

@@ -93,7 +93,14 @@
     if (is_array($stepData)) {
       if ($stepId === 'reports_am' || $stepId === 'reports_pm') {
         $issues = $stepData['issues'] ?? [];
+        $statuses = $stepData['statuses'] ?? [];
         $val = $issues[$aidStr] ?? ($appointmentId !== null ? ($issues[$appointmentId] ?? '') : '');
+        $status = strtolower(trim((string) ($statuses[$aidStr] ?? ($appointmentId !== null ? ($statuses[$appointmentId] ?? '') : ''))));
+        if (($val === null || trim((string) $val) === '') && $status === 'partial_meal') {
+          $feedingKey = $stepId === 'reports_am' ? 'feeding_am' : 'feeding_pm';
+          $partialMealNotes = data_get($flows, $feedingKey . '.partial_meal_notes', []);
+          $val = $partialMealNotes[$aidStr] ?? ($appointmentId !== null ? ($partialMealNotes[$appointmentId] ?? '') : '');
+        }
         if ($val !== null && trim((string)$val) !== '') {
           $detail = trim((string)$val);
         }

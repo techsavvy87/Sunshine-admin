@@ -4,6 +4,7 @@ namespace App\Http\Controllers\web;
 
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 use Carbon\Carbon;
 use App\Models\TimeSlot;
 use App\Models\Service;
@@ -124,6 +125,12 @@ class TimeSlotController extends Controller
 
         $startDate = Carbon::parse($request->start_date);
         $endDate = Carbon::parse($request->end_date);
+
+        if ($startDate->diffInDays($endDate) + 1 > 365) {
+            throw ValidationException::withMessages([
+                'end_date' => 'The date range cannot exceed 12 months (365 days).',
+            ]);
+        }
 
         $holidays = Holiday::with('holidayServices.service')
             ->whereBetween('date', [$startDate->toDateString(), $endDate->toDateString()])

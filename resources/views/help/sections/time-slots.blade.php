@@ -16,7 +16,7 @@
     <li>Select a service from the dropdown</li>
     <li>Choose a date to view existing time slots</li>
     <li>Click "Generate" button</li>
-    <li>In the modal, select a start date and end date (up to 30 days range)</li>
+    <li>In the modal, select a start date and end date (up to 12 months range)</li>
     <li>Review holidays in the selected period</li>
     <li>Click "Confirm" to generate time slots</li>
   </ol>
@@ -25,7 +25,7 @@
   <ul class="list-disc list-inside space-y-1 ml-4">
     <li>Time slots are not generated for dates with holidays that have "Restrict Bookings" enabled</li>
     <li>Time slots are not generated for dates that already have existing time slots</li>
-    <li>The date range cannot exceed 30 days</li>
+    <li>The date range cannot exceed 12 months (365 days)</li>
     <li>Start date cannot be in the past or have existing time slots</li>
     <li>End date must be greater than or equal to start date (allowing single-day generation)</li>
   </ul>

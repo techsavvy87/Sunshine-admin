@@ -115,6 +115,8 @@ class EndOfDayController extends Controller
         $treatmentListRowsByAppointment = collect($treatmentListRows)->keyBy('appointment_id');
         $reportsAmIds = [];
         $reportsPmIds = [];
+        $reportsAmStatuses = [];
+        $reportsPmStatuses = [];
         foreach ($processesForDate as $process) {
             $flows = $process->flows ? (is_string($process->flows) ? json_decode($process->flows, true) : $process->flows) : [];
             if (!is_array($flows)) {
@@ -124,6 +126,12 @@ class EndOfDayController extends Controller
             $reportsPm = $flows['reports_pm'] ?? [];
             $reportsAmIds = array_merge($reportsAmIds, (array) ($reportsAm['selected_pet_ids'] ?? []));
             $reportsPmIds = array_merge($reportsPmIds, (array) ($reportsPm['selected_pet_ids'] ?? []));
+            if (isset($reportsAm['statuses']) && is_array($reportsAm['statuses'])) {
+                $reportsAmStatuses = array_replace($reportsAmStatuses, $reportsAm['statuses']);
+            }
+            if (isset($reportsPm['statuses']) && is_array($reportsPm['statuses'])) {
+                $reportsPmStatuses = array_replace($reportsPmStatuses, $reportsPm['statuses']);
+            }
         }
         $reportsAmIds = array_values(array_unique(array_filter(array_map('intval', $reportsAmIds))));
         $reportsPmIds = array_values(array_unique(array_filter(array_map('intval', $reportsPmIds))));
@@ -135,10 +143,12 @@ class EndOfDayController extends Controller
             }
             $dneIssues = [];
             if (in_array((int) $appointmentId, $reportsAmIds, true)) {
-                $dneIssues[] = 'Do not eat AM Meals';
+                $amStatus = strtolower(trim((string) ($reportsAmStatuses[$appointmentId] ?? $reportsAmStatuses[(string) $appointmentId] ?? '')));
+                $dneIssues[] = $amStatus === 'partial_meal' ? 'Partial AM Meal' : 'Do not eat AM Meals';
             }
             if (in_array((int) $appointmentId, $reportsPmIds, true)) {
-                $dneIssues[] = 'Do not eat PM Meals';
+                $pmStatus = strtolower(trim((string) ($reportsPmStatuses[$appointmentId] ?? $reportsPmStatuses[(string) $appointmentId] ?? '')));
+                $dneIssues[] = $pmStatus === 'partial_meal' ? 'Partial PM Meal' : 'Do not eat PM Meals';
             }
             $pet = $process->appointment && $process->appointment->pet ? $process->appointment->pet : null;
             $customerProfile = $process->appointment && $process->appointment->customer ? $process->appointment->customer->profile : null;

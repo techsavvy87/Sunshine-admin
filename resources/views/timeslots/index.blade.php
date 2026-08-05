@@ -285,7 +285,7 @@
       }
       
       const endDate = new Date(startDate);
-      endDate.setDate(endDate.getDate() + 89);
+      endDate.setDate(endDate.getDate() + 364);
       
       const startDateStr = startDate.toISOString().split('T')[0];
       const endDateStr = endDate.toISOString().split('T')[0];
@@ -349,7 +349,7 @@
     return `${year}-${month}-${day}`;
   }
 
-  function getNextThreeMonthsRangeFromLatestEndDate() {
+  function getNextTwelveMonthsRangeFromLatestEndDate() {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
@@ -376,7 +376,7 @@
     }
 
     const endDate = new Date(startDate);
-    endDate.setDate(endDate.getDate() + 89);
+    endDate.setDate(endDate.getDate() + 364);
 
     return {
       startDateStr: formatDateLocal(startDate),
@@ -455,10 +455,10 @@
 
       // Calculate days including both start and end dates (add 1 for inclusive range)
       const daysDiff = Math.ceil((end - start) / (1000 * 60 * 60 * 24)) + 1;
-      if (daysDiff > 90) {
-        showAlert('The date range cannot exceed 3 months (90 days).');
+      if (daysDiff > 365) {
+        showAlert('The date range cannot exceed 12 months (365 days).');
         const maxEndDate = new Date(start);
-        maxEndDate.setDate(maxEndDate.getDate() + 89); // 90 days total (start + 89 more)
+        maxEndDate.setDate(maxEndDate.getDate() + 364); // 365 days total (start + 364 more)
         $('#end_date').val(maxEndDate.toISOString().split('T')[0]);
         updateEndDateConstraints(startDate);
         return false;
@@ -481,7 +481,7 @@
     $('#end_date').attr('min', minEndDate.toISOString().split('T')[0]);
     
     const maxEndDate = new Date(start);
-    maxEndDate.setDate(maxEndDate.getDate() + 89); // 90 days total (start + 89 more)
+    maxEndDate.setDate(maxEndDate.getDate() + 364); // 365 days total (start + 364 more)
     $('#end_date').attr('max', maxEndDate.toISOString().split('T')[0]);
     
     const currentEndDate = $('#end_date').val();
@@ -548,9 +548,9 @@
         
         // Calculate days including both start and end dates (add 1 for inclusive range)
         const daysDiff = Math.ceil((end - start) / (1000 * 60 * 60 * 24)) + 1;
-        if (daysDiff > 90) {
+        if (daysDiff > 365) {
           const maxEndDate = new Date(start);
-          maxEndDate.setDate(maxEndDate.getDate() + 89); // 90 days total (start + 89 more)
+          maxEndDate.setDate(maxEndDate.getDate() + 364); // 365 days total (start + 364 more)
           $('#end_date').val(maxEndDate.toISOString().split('T')[0]);
         }
       }
@@ -568,10 +568,10 @@
       
       // Calculate days including both start and end dates (add 1 for inclusive range)
       const daysDiff = Math.ceil((end - start) / (1000 * 60 * 60 * 24)) + 1;
-      if (daysDiff > 90) {
-        showAlert('The date range cannot exceed 3 months (90 days).');
+      if (daysDiff > 365) {
+        showAlert('The date range cannot exceed 12 months (365 days).');
         const maxEndDate = new Date(start);
-        maxEndDate.setDate(maxEndDate.getDate() + 89); // 90 days total (start + 89 more)
+        maxEndDate.setDate(maxEndDate.getDate() + 364); // 365 days total (start + 364 more)
         $(this).val(maxEndDate.toISOString().split('T')[0]);
       }
     }
@@ -649,8 +649,8 @@
     const start = new Date(startDate);
     const end = new Date(endDate);
     const daysDiff = Math.ceil((end - start) / (1000 * 60 * 60 * 24)) + 1;
-    if (daysDiff > 90) {
-      showAlert('The date range cannot exceed 3 months (90 days).');
+    if (daysDiff > 365) {
+      showAlert('The date range cannot exceed 12 months (365 days).');
       return;
     }
 

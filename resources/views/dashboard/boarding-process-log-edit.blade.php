@@ -250,8 +250,8 @@
                                                     </th>
                                                     <th>Pet Name</th>
                                                     <th>Customer</th>
-                                                    <th class="food-column">Dry Food</th>
-                                                    <th class="food-column">Wet Food</th>
+                                                    <th class="food-column dry-food-column">Dry Food</th>
+                                                    <th class="food-column wet-food-column">Wet Food</th>
                                                     <th class="meds-column">Meds</th>
                                                     <th class="issue-column" style="display:none;">Issue</th>
                                                 </tr>
@@ -446,6 +446,7 @@ let checkinRestMetaByAppointmentId = {};
 let isLoadingCheckinRestMeta = false;
 let yesterdayNextDayPetIds = [];
 let yesterdayReportsPmIssues = {};
+let yesterdayReportsPmStatuses = {};
 
 function isTruthyBoardingValue(value) {
     return value === true || value === 'true' || value === 1 || value === '1';
@@ -696,6 +697,7 @@ function fetchYesterdayNextDayPetIds() {
     if (!date || selectedAppointmentIds.length === 0) {
         yesterdayNextDayPetIds = [];
         yesterdayReportsPmIssues = {};
+        yesterdayReportsPmStatuses = {};
         return;
     }
     $.ajax({
@@ -712,9 +714,11 @@ function fetchYesterdayNextDayPetIds() {
             if (response.success && Array.isArray(response.yesterday_pet_ids)) {
                 yesterdayNextDayPetIds = response.yesterday_pet_ids;
                 yesterdayReportsPmIssues = response.yesterday_reports_pm_issues || {};
+                yesterdayReportsPmStatuses = response.yesterday_reports_pm_statuses || {};
             } else {
                 yesterdayNextDayPetIds = [];
                 yesterdayReportsPmIssues = {};
+                yesterdayReportsPmStatuses = {};
             }
             // Re-render current TLR step so Treatment List includes yesterday's Next Day pets
             if (currentTab === 'treatment-lunch-rest' && currentProcessItem) {
@@ -729,6 +733,7 @@ function fetchYesterdayNextDayPetIds() {
         error: function() {
             yesterdayNextDayPetIds = [];
             yesterdayReportsPmIssues = {};
+            yesterdayReportsPmStatuses = {};
         }
     });
 }
@@ -941,25 +946,33 @@ function toggleTableColumns(processId) {
     const reportsTabStepsWithIssue = ['dne_list_am', 'dne_list_pm', 'report_lunch', 'report_rest', 'report_prn', 'treatment_concern',
         'end_of_day'
     ];
+    const isFeedingDispenseStep = processId === 'feeding_am' || processId === 'feeding_pm';
+    const isFeedingReportStep = processId === 'reports_am' || processId === 'reports_pm';
+    $('#pet_details_table thead .dry-food-column').text(isFeedingReportStep ? 'Status' : 'Dry Food');
+    $('#pet_details_table thead .wet-food-column').text('Wet Food');
+    $('#pet_details_table thead .issue-column').text(isFeedingDispenseStep ? 'Partial Meal' : (isFeedingReportStep ? 'Issue/Detail' : 'Issue'));
     if (processId === 'reports_am' || processId === 'reports_pm') {
         $('.pet-details-checkbox-col').hide();
     } else {
         $('.pet-details-checkbox-col').show();
     }
     if (processId === 'reports_am' || processId === 'reports_pm') {
-        // AM/PM Feeding Meds → Reports: show only Issue column
-        $('.food-column').hide();
+        $('.dry-food-column').show();
+        $('.wet-food-column').hide();
         $('.meds-column').hide();
         $('.issue-column').show();
     } else if (currentTab === 'reports' && reportsTabStepsWithIssue.includes(processId)) {
         $('.food-column').hide();
         $('.meds-column').hide();
         $('.issue-column').show();
-    } else if (processId === 'food_prep_am' || processId === 'food_prep_pm' || processId === 'feeding_am' ||
-        processId === 'feeding_pm') {
+    } else if (processId === 'food_prep_am' || processId === 'food_prep_pm') {
         $('.food-column').show();
         $('.meds-column').hide();
         $('.issue-column').hide();
+    } else if (isFeedingDispenseStep) {
+        $('.food-column').show();
+        $('.meds-column').hide();
+        $('.issue-column').show();
     } else if (processId === 'meds_prep_am' || processId === 'meds_prep_pm' || processId === 'meds_dispense_am' ||
         processId === 'meds_dispense_pm') {
         $('.food-column').hide();
@@ -1345,6 +1358,68 @@ function isFlowChecked(value) {
     return value === true || value === 'true';
 }
 
+function getSavedWorkflowTextValue(map, workflowId) {
+    if (!map || typeof map !== 'object') {
+        return '';
+    }
+
+    return (map[workflowId] || map[String(workflowId)] || '').toString().trim();
+}
+
+function getFeedingStepKey(processId) {
+    if (processId === 'feeding_am' || processId === 'reports_am' || processId === 'dne_list_am') {
+        return 'feeding_am';
+    }
+    if (processId === 'feeding_pm' || processId === 'reports_pm' || processId === 'dne_list_pm') {
+        return 'feeding_pm';
+    }
+
+    return null;
+}
+
+function getFeedingSelectedPetIds(feedingData) {
+    return Array.isArray(feedingData.selected_pet_ids) ? feedingData.selected_pet_ids.map(id => parseInt(id, 10)).filter(id => !isNaN(id)) : [];
+}
+
+function getFeedingPartialMealNote(feedingData, workflowId) {
+    return getSavedWorkflowTextValue((feedingData || {}).partial_meal_notes || {}, workflowId);
+}
+
+function getFeedingReportStatus(feedingData, workflowId) {
+    const selectedPetIds = getFeedingSelectedPetIds(feedingData || {});
+    const isChecked = selectedPetIds.includes(parseInt(workflowId, 10));
+    if (!isChecked) {
+        return 'dne';
+    }
+
+    return getFeedingPartialMealNote(feedingData, workflowId) ? 'partial_meal' : 'completed';
+}
+
+function getFeedingReportStatusLabel(status) {
+    return status === 'partial_meal' ? 'Partial Meal' : 'DNE';
+}
+
+function getFeedingReportIssueValue(reportData, feedingData, workflowId) {
+    const status = getFeedingReportStatus(feedingData, workflowId);
+    if (status === 'partial_meal') {
+        return getFeedingPartialMealNote(feedingData, workflowId);
+    }
+
+    return getSavedWorkflowTextValue((reportData || {}).issues || {}, workflowId);
+}
+
+function getSavedWorkflowStatusValue(map, workflowId) {
+    return getSavedWorkflowTextValue(map, workflowId).toLowerCase();
+}
+
+function getReportWorkflowStatus(reportData, feedingData, workflowId) {
+    return getSavedWorkflowStatusValue((reportData || {}).statuses || {}, workflowId) || getFeedingReportStatus(feedingData, workflowId);
+}
+
+function getFeedingConcernLabel(status, periodLabel) {
+    return status === 'partial_meal' ? `Partial ${periodLabel} Meal` : `Do not eat ${periodLabel} Meals`;
+}
+
 function getFoodRowsFromFlows(flows, type) {
     const listKey = type === 'dry' ? 'dry_food_list' : 'wet_food_list';
     const singleKey = type === 'dry' ? 'dry_food' : 'wet_food';
@@ -1491,30 +1566,28 @@ function buildMedicationDisplayText(rows, displayPeriod = null) {
 function renderPetDetailsTable(data) {
     let html = '';
 
+    const isFeedingDispenseStep = currentProcessItem === 'feeding_am' || currentProcessItem === 'feeding_pm';
     const isAmFeedingReport = currentProcessItem === 'reports_am';
     const isPmFeedingReport = currentProcessItem === 'reports_pm';
     const isFeedingReport = isAmFeedingReport || isPmFeedingReport;
     const currentData = workflowData[currentProcessItem] || {};
     const savedIssues = currentData.issues || {};
+    const savedPartialMealNotes = currentData.partial_meal_notes || {};
 
-    // Filter data for Reports: only show pets NOT checked in Feeding Dispense (AM or PM)
+    // Filter data for Reports: include only DNE and Partial Meal pets from feeding dispense.
     let filteredData = data;
     if (isAmFeedingReport) {
         const feedingAmData = workflowData['feeding_am'] || {};
-        const feedingAmPetIds = feedingAmData.selected_pet_ids ? feedingAmData.selected_pet_ids.map(id => parseInt(
-            id)) : [];
         filteredData = data.filter(item => {
             const workflowId = getWorkflowItemId(item);
-            return workflowId === null || !feedingAmPetIds.includes(workflowId);
+            return workflowId === null || getFeedingReportStatus(feedingAmData, workflowId) !== 'completed';
         });
     }
     if (isPmFeedingReport) {
         const feedingPmData = workflowData['feeding_pm'] || {};
-        const feedingPmPetIds = feedingPmData.selected_pet_ids ? feedingPmData.selected_pet_ids.map(id => parseInt(
-            id)) : [];
         filteredData = data.filter(item => {
             const workflowId = getWorkflowItemId(item);
-            return workflowId === null || !feedingPmPetIds.includes(workflowId);
+            return workflowId === null || getFeedingReportStatus(feedingPmData, workflowId) !== 'completed';
         });
     }
 
@@ -1605,10 +1678,21 @@ function renderPetDetailsTable(data) {
             '{{ asset("storage/profiles/") }}/' + item.customer_avatar :
             '{{ asset("images/default-user-avatar.png") }}';
 
-        const issueValue = savedIssues[workflowId] || savedIssues[String(workflowId)] || '';
+        const feedingReportData = isAmFeedingReport ? (workflowData['feeding_am'] || {}) : (isPmFeedingReport ?
+            (workflowData['feeding_pm'] || {}) : {});
+        const reportStatus = isFeedingReport ? getFeedingReportStatus(feedingReportData, workflowId) : '';
+        const reportStatusLabel = isFeedingReport ? getFeedingReportStatusLabel(reportStatus) : '';
+        const issueValue = isFeedingReport ?
+            getFeedingReportIssueValue(currentData, feedingReportData, workflowId) :
+            getSavedWorkflowTextValue(savedIssues, workflowId);
+        const partialMealNoteValue = getSavedWorkflowTextValue(savedPartialMealNotes, workflowId);
+        const dryColumnValue = isFeedingReport ? reportStatusLabel : dryFoodHtml;
+        const wetColumnValue = isFeedingReport ? '' : wetFoodHtml;
         const issueCell = isFeedingReport ?
-            `<textarea class="textarea textarea-bordered textarea-xs w-full issue-input" rows="2" style="min-height: 2rem;" data-appointment-id="${workflowId}">${issueValue ? issueValue.replace(/</g, '&lt;').replace(/>/g, '&gt;') : ''}</textarea>` :
-            (issueValue || '');
+            `<textarea class="textarea textarea-bordered textarea-xs w-full issue-input" rows="2" style="min-height: 2rem;" data-appointment-id="${workflowId}" ${reportStatus === 'partial_meal' ? 'readonly' : ''}>${issueValue ? issueValue.replace(/</g, '&lt;').replace(/>/g, '&gt;') : ''}</textarea>` :
+            (isFeedingDispenseStep ?
+                `<textarea class="textarea textarea-bordered textarea-xs w-full partial-meal-note-input" rows="2" style="min-height: 2rem;" data-appointment-id="${workflowId}" placeholder="Partial meal note (optional)...">${partialMealNoteValue ? partialMealNoteValue.replace(/</g, '&lt;').replace(/>/g, '&gt;') : ''}</textarea>` :
+                (issueValue || ''));
 
         const checkboxCell = (isAmFeedingReport || isPmFeedingReport) ? '' : `
           <td>
@@ -1629,8 +1713,8 @@ function renderPetDetailsTable(data) {
               <span>${item.customer_name || 'N/A'}</span>
             </div>
           </td>
-          <td class="food-column">${dryFoodHtml}</td>
-          <td class="food-column">${wetFoodHtml}</td>
+                    <td class="food-column dry-food-column">${dryColumnValue}</td>
+                    <td class="food-column wet-food-column">${wetColumnValue}</td>
           <td class="meds-column">${medsHtml}</td>
           <td class="issue-column">${issueCell}</td>
         </tr>
@@ -2275,7 +2359,9 @@ function renderTreatmentListTLRForm() {
         treatmentPlanDataForTime.process_time || treatmentPlanDataForTime.processTime || '';
     const reportedDisplay = prevStepProcessTime || '-';
     const yesterdayIds = (yesterdayNextDayPetIds || []).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
-    const reportsAmIdsRender = ((workflowData['reports_am'] || {}).selected_pet_ids || []).map(id => parseInt(id, 10))
+    const reportsAmData = workflowData['reports_am'] || {};
+    const feedingAmData = workflowData['feeding_am'] || {};
+    const reportsAmIdsRender = ((reportsAmData.selected_pet_ids || []).map(id => parseInt(id, 10)))
         .filter(id => !isNaN(id));
 
     $('#dne_list_search_bar').hide();
@@ -2310,8 +2396,9 @@ function renderTreatmentListTLRForm() {
                         partKey] || partKey);
                 });
             }
+            const reportStatus = getReportWorkflowStatus(reportsAmData, feedingAmData, appointmentId);
             const issuesText = inTreatmentPlan ? (issues.join(', ') || 'No issues') : (fromReportsAmOnly ?
-                'Do not eat AM Meals' : 'Carried from previous day');
+                getFeedingConcernLabel(reportStatus, 'AM') : 'Carried from previous day');
             const petTreatmentData = treatmentPlanTreatmentData[appointmentId] || {};
             const treatmentDetail = isFromYesterday ? '-' : (petTreatmentData.detail || '-');
             bodyHtml += `<tr class="hover:bg-base-200" data-appointment-id="${appointmentId}">`;
@@ -2339,7 +2426,9 @@ function renderTreatmentsTLRForm() {
     const currentData = workflowData['treatments_tlr'] || {};
     const savedResults = currentData.results || {};
     const yesterdayIds = (yesterdayNextDayPetIds || []).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
-    const reportsAmIdsRender = ((workflowData['reports_am'] || {}).selected_pet_ids || []).map(id => parseInt(id, 10))
+    const reportsAmData = workflowData['reports_am'] || {};
+    const feedingAmData = workflowData['feeding_am'] || {};
+    const reportsAmIdsRender = ((reportsAmData.selected_pet_ids || []).map(id => parseInt(id, 10)))
         .filter(id => !isNaN(id));
 
     $('#dne_list_search_bar').hide();
@@ -2382,8 +2471,9 @@ function renderTreatmentsTLRForm() {
                     partKey);
             });
         }
+        const reportStatus = getReportWorkflowStatus(reportsAmData, feedingAmData, appointmentId);
         const issuesText = inTreatmentPlan ? (issues.join(', ') || 'No issues') : (fromReportsAmOnly ?
-            'Do not eat AM Meals' : 'Carried from previous day');
+            getFeedingConcernLabel(reportStatus, 'AM') : 'Carried from previous day');
         const petTreatmentData = treatmentPlanTreatmentData[appointmentId] || {};
         const treatmentSelections = getTreatmentPlanSelectionValues(petTreatmentData);
         const treatmentSelectionText = treatmentSelections.length > 0 ? treatmentSelections.join(', ') : '-';
@@ -2449,7 +2539,9 @@ function renderNextDayTreatmentListTLRForm() {
     const checkPetCheckData = checkPetData.check_data || {};
     const treatmentPlanTreatmentData = treatmentPlanData.treatment_data || {};
     const yesterdayIds = (yesterdayNextDayPetIds || []).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
-    const reportsAmIdsRender = ((workflowData['reports_am'] || {}).selected_pet_ids || []).map(id => parseInt(id, 10))
+    const reportsAmData = workflowData['reports_am'] || {};
+    const feedingAmData = workflowData['feeding_am'] || {};
+    const reportsAmIdsRender = ((reportsAmData.selected_pet_ids || []).map(id => parseInt(id, 10)))
         .filter(id => !isNaN(id));
 
     $('#dne_list_search_bar').hide();
@@ -2492,8 +2584,9 @@ function renderNextDayTreatmentListTLRForm() {
                 if (petCheckData[partKey].status === 'issue') issues.push(bodyPartsMapTLR[partKey] || partKey);
             });
         }
+        const reportStatus = getReportWorkflowStatus(reportsAmData, feedingAmData, appointmentId);
         const issuesText = inTreatmentPlan ? (issues.join(', ') || 'No issues') : (fromReportsAmOnly ?
-            'Do not eat AM Meals' : 'Carried from previous day');
+            getFeedingConcernLabel(reportStatus, 'AM') : 'Carried from previous day');
         const petTreatmentData = treatmentPlanTreatmentData[appointmentId] || {};
         const treatmentSelections = getTreatmentPlanSelectionValues(petTreatmentData);
         const treatmentSelectionText = treatmentSelections.length > 0 ? treatmentSelections.join(', ') : '-';
@@ -2527,8 +2620,10 @@ function renderDneListForm(amOrPm, checkinData) {
     const key = amOrPm === 'am' ? 'reports_am' : 'reports_pm';
     const stepKey = amOrPm === 'am' ? 'dne_list_am' : 'dne_list_pm';
     const reportData = workflowData[key] || {};
+    const feedingData = workflowData[getFeedingStepKey(stepKey)] || {};
     const petIds = (reportData.selected_pet_ids || []).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
     const reportIssues = reportData.issues || {};
+    const reportStatuses = reportData.statuses || {};
     const checkinMap = {};
     if (checkinData && Array.isArray(checkinData)) {
         checkinData.forEach(item => {
@@ -2557,12 +2652,12 @@ function renderDneListForm(amOrPm, checkinData) {
         $('#dne_list_employee').text(employeeName);
 
         $('#treatment_lunch_rest_thead').html(
-            '<tr><th style="min-width: 200px;">Pet</th><th style="min-width: 200px;">Customer</th><th style="min-width: 160px;">Dry Food</th><th style="min-width: 160px;">Wet Food</th><th style="min-width: 200px;">Issue</th></tr>'
+            '<tr><th style="min-width: 200px;">Pet</th><th style="min-width: 200px;">Customer</th><th style="min-width: 160px;">Dry Food</th><th style="min-width: 160px;">Wet Food</th><th style="min-width: 140px;">Status</th><th style="min-width: 200px;">Issue/Detail</th></tr>'
         );
         let bodyHtml = '';
         if (petIds.length === 0) {
             bodyHtml =
-                '<tr data-empty><td colspan="5" class="text-center p-4 text-base-content/70">No pets selected in AM Reports. Complete Reports in AM Feeding Meds first.</td></tr>';
+                '<tr data-empty><td colspan="6" class="text-center p-4 text-base-content/70">No pets selected in AM Reports. Complete Reports in AM Feeding Meds first.</td></tr>';
         } else {
             petIds.forEach(appointmentId => {
                 const pet = appointmentToPetMap[appointmentId];
@@ -2577,7 +2672,9 @@ function renderDneListForm(amOrPm, checkinData) {
                 const wetFoodRows = getFoodRowsFromFlows(flows, 'wet');
                 const dryFoodHtml = buildFoodDisplayText(dryFoodRows);
                 const wetFoodHtml = buildFoodDisplayText(wetFoodRows);
-                const issueVal = (reportIssues[appointmentId] || '').replace(/</g, '&lt;').replace(/>/g,
+                const statusValue = (reportStatuses[appointmentId] || reportStatuses[String(appointmentId)] || getFeedingReportStatus(feedingData, appointmentId)).toString().trim();
+                const statusLabel = getFeedingReportStatusLabel(statusValue);
+                const issueVal = (statusValue === 'partial_meal' ? getFeedingPartialMealNote(feedingData, appointmentId) : getSavedWorkflowTextValue(reportIssues, appointmentId)).replace(/</g, '&lt;').replace(/>/g,
                     '&gt;');
                 bodyHtml +=
                     `<tr class="hover:bg-base-200 dne-list-am-row" data-appointment-id="${appointmentId}" data-pet-name="${(pet.pet_name || '').toLowerCase()}" data-customer-name="${(pet.customer_name || '').toLowerCase()}">`;
@@ -2587,6 +2684,7 @@ function renderDneListForm(amOrPm, checkinData) {
                     `<td><div class="flex items-center space-x-3"><img src="${customerAvatarUrl}" alt="Customer" class="mask mask-squircle bg-base-200 size-10" /><span>${pet.customer_name || 'N/A'}</span></div></td>`;
                 bodyHtml += `<td><span class="text-sm">${dryFoodHtml}</span></td>`;
                 bodyHtml += `<td><span class="text-sm">${wetFoodHtml}</span></td>`;
+                bodyHtml += `<td><span class="text-sm">${statusLabel}</span></td>`;
                 bodyHtml += `<td><span class="text-sm">${issueVal || '—'}</span></td>`;
                 bodyHtml += '</tr>';
             });
@@ -2619,12 +2717,12 @@ function renderDneListForm(amOrPm, checkinData) {
         $('#dne_list_employee').text(employeeName);
 
         $('#treatment_lunch_rest_thead').html(
-            '<tr><th style="min-width: 200px;">Pet</th><th style="min-width: 200px;">Customer</th><th style="min-width: 160px;">Dry Food</th><th style="min-width: 160px;">Wet Food</th><th style="min-width: 200px;">Issue</th></tr>'
+            '<tr><th style="min-width: 200px;">Pet</th><th style="min-width: 200px;">Customer</th><th style="min-width: 160px;">Dry Food</th><th style="min-width: 160px;">Wet Food</th><th style="min-width: 140px;">Status</th><th style="min-width: 200px;">Issue/Detail</th></tr>'
         );
         let bodyHtml = '';
         if (petIds.length === 0) {
             bodyHtml =
-                '<tr data-empty><td colspan="5" class="text-center p-4 text-base-content/70">No pets selected in PM Reports. Complete Reports in PM Feeding Meds first.</td></tr>';
+                '<tr data-empty><td colspan="6" class="text-center p-4 text-base-content/70">No pets selected in PM Reports. Complete Reports in PM Feeding Meds first.</td></tr>';
         } else {
             petIds.forEach(appointmentId => {
                 const pet = appointmentToPetMap[appointmentId];
@@ -2639,7 +2737,9 @@ function renderDneListForm(amOrPm, checkinData) {
                 const wetFoodRows = getFoodRowsFromFlows(flows, 'wet');
                 const dryFoodHtml = buildFoodDisplayText(dryFoodRows);
                 const wetFoodHtml = buildFoodDisplayText(wetFoodRows);
-                const issueVal = (reportIssues[appointmentId] || '').replace(/</g, '&lt;').replace(/>/g,
+                const statusValue = (reportStatuses[appointmentId] || reportStatuses[String(appointmentId)] || getFeedingReportStatus(feedingData, appointmentId)).toString().trim();
+                const statusLabel = getFeedingReportStatusLabel(statusValue);
+                const issueVal = (statusValue === 'partial_meal' ? getFeedingPartialMealNote(feedingData, appointmentId) : getSavedWorkflowTextValue(reportIssues, appointmentId)).replace(/</g, '&lt;').replace(/>/g,
                     '&gt;');
                 bodyHtml +=
                     `<tr class="hover:bg-base-200 dne-list-pm-row" data-appointment-id="${appointmentId}" data-pet-name="${(pet.pet_name || '').toLowerCase()}" data-customer-name="${(pet.customer_name || '').toLowerCase()}">`;
@@ -2649,6 +2749,7 @@ function renderDneListForm(amOrPm, checkinData) {
                     `<td><div class="flex items-center space-x-3"><img src="${customerAvatarUrl}" alt="Customer" class="mask mask-squircle bg-base-200 size-10" /><span>${pet.customer_name || 'N/A'}</span></div></td>`;
                 bodyHtml += `<td><span class="text-sm">${dryFoodHtml}</span></td>`;
                 bodyHtml += `<td><span class="text-sm">${wetFoodHtml}</span></td>`;
+                bodyHtml += `<td><span class="text-sm">${statusLabel}</span></td>`;
                 bodyHtml += `<td><span class="text-sm">${issueVal || '—'}</span></td>`;
                 bodyHtml += '</tr>';
             });
@@ -2672,6 +2773,7 @@ function renderDneListForm(amOrPm, checkinData) {
 
 function renderLunchForm(checkinData) {
     const reportsAmData = workflowData['reports_am'] || {};
+    const feedingAmData = workflowData['feeding_am'] || {};
     const reportsAmIds = ((reportsAmData.selected_pet_ids || []).map(id => parseInt(id, 10)).filter(id => !isNaN(id)));
     const yesterdayIds = (yesterdayNextDayPetIds || []).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
     const reportsAmIssues = reportsAmData.issues || {};
@@ -2718,12 +2820,14 @@ function renderLunchForm(checkinData) {
             const lunchWet = checkinItem && (checkinItem.lunch_wet === true || checkinItem.lunch_wet ===
                 'true');
             const isScheduledLunch = lunchDry || lunchWet;
+            const reportsAmStatus = getReportWorkflowStatus(reportsAmData, feedingAmData, appointmentId);
+            const yesterdayPmStatus = getSavedWorkflowStatusValue(yesterdayReportsPmStatuses, appointmentId) || 'dne';
             let lunchType = '';
             if (isScheduledLunch) {
                 lunchType = lunchDry && lunchWet ? ' (Dry, Wet)' : (lunchDry ? ' (Dry)' : ' (Wet)');
             }
-            let sourceText = fromReportsAm ? 'Do not eat AM meals' : (fromYesterday ?
-                'Do not eat yesterday\'s PM Meals' : (isScheduledLunch ? 'Scheduled for lunch' + lunchType :
+            let sourceText = fromReportsAm ? getFeedingConcernLabel(reportsAmStatus, 'AM') : (fromYesterday ?
+                (yesterdayPmStatus === 'partial_meal' ? 'Partial PM Meal (yesterday)' : 'Do not eat yesterday\'s PM Meals') : (isScheduledLunch ? 'Scheduled for lunch' + lunchType :
                     '-'));
             const petAvatarUrl = pet.pet_img ? '{{ asset("storage/pets/") }}/' + pet.pet_img :
                 '{{ asset("images/no_image.jpg") }}';
@@ -2751,7 +2855,7 @@ function renderLunchForm(checkinData) {
             const mealsText = mealTypes.length > 0 ? mealTypes.join(' or ') : '-';
             const amountText = amounts.length > 0 ? amounts.join(' / ') : '-';
             const issueVal = fromReportsAm ?
-                (reportsAmIssues[appointmentId] || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') :
+                (reportsAmStatus === 'partial_meal' ? getFeedingPartialMealNote(feedingAmData, appointmentId) : getSavedWorkflowTextValue(reportsAmIssues, appointmentId)).replace(/</g, '&lt;').replace(/>/g, '&gt;') :
                 (fromYesterday ? (yesterdayReportsPmIssues[appointmentId] || yesterdayReportsPmIssues[String(
                     appointmentId)] || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') : '');
 
@@ -3523,15 +3627,31 @@ $('#save_pet_details_btn').on('click', function() {
             }
             workflowData[currentProcessItem].selected_pet_ids = checkedIds;
             workflowData[currentProcessItem].process_type = currentProcessItem;
+            if (currentProcessItem === 'feeding_am' || currentProcessItem === 'feeding_pm') {
+                const partialMealNotes = {};
+                $('#pet_details_tbody .partial-meal-note-input').each(function() {
+                    const workflowId = $(this).data('appointment-id');
+                    const noteValue = ($(this).val() || '').trim();
+                    if (noteValue) {
+                        partialMealNotes[workflowId] = noteValue;
+                    }
+                });
+                workflowData[currentProcessItem].partial_meal_notes = partialMealNotes;
+            }
         }
     }
 
     // Save AM/PM Reports (reports_am / reports_pm)
     if (currentProcessItem === 'reports_am' || currentProcessItem === 'reports_pm') {
+        const feedingKey = getFeedingStepKey(currentProcessItem);
+        const feedingData = workflowData[feedingKey] || {};
         const issues = {};
+        const statuses = {};
         $('#pet_details_tbody .issue-input').each(function() {
             const apptId = $(this).data('appointment-id');
-            issues[apptId] = $(this).val() || '';
+            const status = getFeedingReportStatus(feedingData, apptId);
+            statuses[apptId] = status;
+            issues[apptId] = status === 'partial_meal' ? getFeedingPartialMealNote(feedingData, apptId) : ($(this).val() || '').trim();
         });
         const reportSelectedIds = $('#pet_details_tbody tr[data-appointment-id]').map(function() {
             return $(this).data('appointment-id');
@@ -3542,6 +3662,7 @@ $('#save_pet_details_btn').on('click', function() {
         workflowData[currentProcessItem] = {
             selected_pet_ids: reportSelectedIds,
             issues: issues,
+            statuses: statuses,
             process_type: currentProcessItem,
             staff_sign_off: staffSignOff,
             process_time: processTime
