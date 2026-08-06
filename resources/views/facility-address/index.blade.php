@@ -70,6 +70,15 @@
               required
             />
           </div>
+
+          <div class="space-y-2">
+            <label class="fieldset-label" for="late_fees_enabled">Enable Late Fees</label>
+            <label class="label w-fit cursor-pointer gap-3">
+              <input type="hidden" name="late_fees_enabled" value="0" />
+              <input id="late_fees_enabled" name="late_fees_enabled" type="checkbox" value="1" class="toggle toggle-primary" {{ old('late_fees_enabled', $facilityAddress->late_fees_enabled ?? true) ? 'checked' : '' }} />
+              <span id="late_fees_enabled_label">{{ old('late_fees_enabled', $facilityAddress->late_fees_enabled ?? true) ? 'On' : 'Off' }}</span>
+            </label>
+          </div>
         </div>
       </div>
     </div>
@@ -90,6 +99,10 @@
 
 @section('page-js')
 <script>
+$('#late_fees_enabled').on('change', function() {
+  $('#late_fees_enabled_label').text(this.checked ? 'On' : 'Off');
+});
+
 function saveFacilityAddress() {
   const address = ($('#address').val() || '').trim();
   const city = ($('#city').val() || '').trim();

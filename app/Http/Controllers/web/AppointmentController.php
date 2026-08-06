@@ -29,6 +29,7 @@ use App\Models\Room;
 use App\Services\AppointmentBookingNotifier;
 use App\Services\InvoicePaymentService;
 use App\Services\BoardingCareScheduleService;
+use App\Services\LateFeeService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Mail;
@@ -38,6 +39,23 @@ use App\Mail\AdminCustomerMessage;
 
 class AppointmentController extends Controller
 {
+    public function updateLateFeeSetting(Request $request, $id)
+    {
+        $request->validate(['apply_late_fee' => ['required', 'boolean']]);
+        $appointment = Appointment::with('service.category')->findOrFail($id);
+
+        if (($appointment->status ?? null) !== 'completed') {
+            return response()->json(['status' => false, 'message' => 'Late fees can only be changed for completed appointments.'], 422);
+        }
+
+        $appointment->apply_late_fee = $request->boolean('apply_late_fee');
+        $appointment->save();
+        $result = app(LateFeeService::class)->reconcile($appointment);
+        appointment_audit_log($appointment->id, 'Late checkout fee ' . ($appointment->apply_late_fee ? 'enabled' : 'disabled') . '.');
+
+        return response()->json(['status' => true, 'message' => 'Late fee setting updated.', 'pricing' => $result]);
+    }
+
     public function list(Request $request)
     {
         $perPage = $request->get('per_page', 20);
@@ -4466,6 +4484,11 @@ class AppointmentController extends Controller
 
         // Save invoice items
         $items = is_array($request->items) ? $request->items : [];
+        $checkin = Checkin::where('appointment_id', $appointment->id)->first();
+        $checkinFlows = $checkin && !empty($checkin->flows)
+            ? (is_array($checkin->flows) ? $checkin->flows : (json_decode($checkin->flows, true) ?: []))
+            : [];
+        $items = $this->normalizeBoardingSpecialFeeItems($appointment, $items, $checkinFlows);
         $items = dedupeBoardingAutoFeeInvoiceItems($items);
 
         $itemsForEmail = [];
@@ -5037,6 +5060,7 @@ class AppointmentController extends Controller
             $baseEstimatedPrice = max(0, $storedEstimatedPrice - $previousAppliedLateCheckoutFee);
             $appointment->estimated_price = round($baseEstimatedPrice + $appliedLateCheckoutDaycareFee, 2);
             $appointment->save();
+            app(LateFeeService::class)->reconcile($appointment->fresh());
         }
 
         $invoice = Invoice::where('appointment_id', $appointment->id)->first();

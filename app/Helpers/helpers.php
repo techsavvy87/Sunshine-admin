@@ -674,6 +674,11 @@ if (!function_exists('getBoardingLateCheckoutDaycareBreakdown')) {
             return $result;
         }
 
+        $facility = \App\Models\FacilityAddress::query()->orderBy('id')->first();
+        if (!shouldApplyLateFee($facility, $appointment)) {
+            return $result;
+        }
+
         $scheduledPickupAt = \Carbon\Carbon::parse($appointment->end_date . ' ' . $appointment->end_time);
         $result['scheduled_pickup_at'] = $scheduledPickupAt;
 
@@ -764,6 +769,14 @@ if (!function_exists('getBoardingLateCheckoutDaycareBreakdown')) {
         $result['should_apply_fee'] = $fee > 0;
 
         return $result;
+    }
+}
+
+if (!function_exists('shouldApplyLateFee')) {
+    function shouldApplyLateFee($facility, $appointment): bool
+    {
+        return (bool) ($facility?->late_fees_enabled ?? true)
+            && (bool) ($appointment?->apply_late_fee ?? true);
     }
 }
 

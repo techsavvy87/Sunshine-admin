@@ -8,7 +8,8 @@ use App\Models\Room;
 class Appointment extends Model
 {
     protected $casts = [
-        'metadata' => 'array'
+        'metadata' => 'array',
+        'apply_late_fee' => 'boolean',
     ];
 
     public function getFamilyPetIdsAttribute(): array

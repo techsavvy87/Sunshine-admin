@@ -4,6 +4,8 @@ namespace App\Http\Controllers\web;
 
 use App\Http\Controllers\Controller;
 use App\Models\FacilityAddress as FacilityAddressModel;
+use App\Models\Appointment;
+use App\Services\LateFeeService;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
@@ -29,6 +31,7 @@ class FacilityAddressController extends Controller
             'city' => ['required', 'string', 'max:255', 'regex:/^[a-zA-Z\s\.-]+$/'],
             'state' => ['required', 'string', Rule::in(array_keys(config('us_states', [])))],
             'zip' => ['required', 'string', 'regex:/^\d{5}(?:-\d{4})?$/'],
+            'late_fees_enabled' => ['nullable', 'boolean'],
         ], [
             'address.required' => 'Please fill in address.',
             'city.required' => 'Please fill in city.',
@@ -44,6 +47,7 @@ class FacilityAddressController extends Controller
             'city' => $validated['city'] ?? null,
             'state' => $validated['state'] ?? null,
             'zip_code' => $validated['zip'] ?? null,
+            'late_fees_enabled' => $request->boolean('late_fees_enabled'),
         ];
 
         $facilityAddress = FacilityAddressModel::query()->orderBy('id')->first();
@@ -58,6 +62,11 @@ class FacilityAddressController extends Controller
         } else {
             FacilityAddressModel::query()->create($data);
         }
+
+        Appointment::query()
+            ->whereHas('service.category', fn ($query) => $query->where('name', 'like', '%boarding%'))
+            ->with('service.category')
+            ->each(fn (Appointment $appointment) => app(LateFeeService::class)->reconcile($appointment));
 
         return redirect()->route('facility-address')->with([
             'message' => 'Facility address updated successfully.',

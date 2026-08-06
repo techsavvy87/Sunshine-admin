@@ -161,7 +161,8 @@ class DashboardController extends Controller
         }
 
         $persistedAppliedFee = floatval($checkoutFlows['applied_late_checkout_daycare_fee'] ?? 0);
-        if ($persistedAppliedFee > 0) {
+        $facility = \App\Models\FacilityAddress::query()->orderBy('id')->first();
+        if ($persistedAppliedFee > 0 && shouldApplyLateFee($facility, $appointment)) {
             return $persistedAppliedFee;
         }
 

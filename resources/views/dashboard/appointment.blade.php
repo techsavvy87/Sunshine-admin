@@ -307,7 +307,9 @@
     $headerDaycareDuration = floatval($headerDaycarePricingService->duration ?? $headerDaycarePricingService->duration_medium ?? $headerDaycarePricingService->duration_small ?? 0);
     $headerLateCheckoutThresholdHours = 1;
     $headerLateCheckoutHourlyRate = ($headerDaycarePrice > 0 && $headerDaycareDuration > 0) ? round($headerDaycarePrice / $headerDaycareDuration, 2) : 0;
-    $headerLateCheckoutFormulaFee = ($headerPickupIsLate && $headerLateHoursDecimal >= $headerLateCheckoutThresholdHours && $headerLateCheckoutHourlyRate > 0)
+    $headerLateFeeFacility = \App\Models\FacilityAddress::query()->orderBy('id')->first();
+    $headerLateFeeEligible = shouldApplyLateFee($headerLateFeeFacility, $appointment);
+    $headerLateCheckoutFormulaFee = ($headerLateFeeEligible && $headerPickupIsLate && $headerLateHoursDecimal >= $headerLateCheckoutThresholdHours && $headerLateCheckoutHourlyRate > 0)
       ? round(floor($headerLateHoursDecimal) * $headerLateCheckoutHourlyRate, 2)
       : 0;
     $headerLateCheckoutServerFee = isset($lateCheckoutDaycareFeeDisplay)
@@ -1565,6 +1567,11 @@
                       @if($invoice && $invoice->items)
                         @php
                           $displayInvoiceItems = collect(dedupeBoardingAutoFeeInvoiceItems($invoice->items))->values();
+                          if (!shouldApplyLateFee(\App\Models\FacilityAddress::query()->orderBy('id')->first(), $appointment)) {
+                            $displayInvoiceItems = $displayInvoiceItems->reject(function ($item) {
+                              return in_array(strtolower(trim((string) ($item->item_name ?? ''))), ['late checkout daycare fee', 'late checkout fee'], true);
+                            })->values();
+                          }
                         @endphp
                         @foreach($displayInvoiceItems as $invoiceItem)
                           @php
@@ -1636,6 +1643,9 @@
                               $persistedLateCheckoutInvoiceFee = max($persistedLateCheckoutInvoiceFee, floatval($invoiceItem->price ?? 0));
                             }
                           }
+                        }
+                        if (!shouldApplyLateFee(\App\Models\FacilityAddress::query()->orderBy('id')->first(), $appointment)) {
+                          $persistedLateCheckoutInvoiceFee = 0;
                         }
 
                         $invoiceLateCheckoutBreakdown = isBoardingService($appointment->service)
@@ -3183,6 +3193,8 @@
       @if ($appointment->status === 'completed')
       @php
         $checkoutFlowValues = [];
+        $lateFeeFacility = \App\Models\FacilityAddress::query()->orderBy('id')->first();
+        $globalLateFeesEnabled = (bool) ($lateFeeFacility->late_fees_enabled ?? true);
         if ($checkout && !empty($checkout->flows)) {
           if (is_array($checkout->flows)) {
             $checkoutFlowValues = $checkout->flows;
@@ -3224,6 +3236,16 @@
             <input aria-label="Collapse trigger" type="checkbox" name="accordion-multiple" />
             <div class="collapse-title font-medium py-1">Checkout Info</div>
             <div class="collapse-content bg-base-100">
+              <div class="mt-4 flex items-center justify-between rounded-box border border-base-300 p-3">
+                <div>
+                  <p class="font-medium">Apply Late Fee</p>
+                  <p class="text-xs text-base-content/60">{{ $globalLateFeesEnabled ? 'Apply the calculated late checkout fee to this appointment.' : 'Late fees are disabled in Facility Address settings.' }}</p>
+                </div>
+                <label class="label cursor-pointer gap-3">
+                  <span id="appointment_late_fee_label">{{ ($appointment->apply_late_fee ?? true) ? 'Yes' : 'No' }}</span>
+                  <input id="appointment_late_fee" type="checkbox" class="toggle toggle-primary" {{ ($appointment->apply_late_fee ?? true) ? 'checked' : '' }} />
+                </label>
+              </div>
               <div class="mt-4 grid grid-cols-1 gap-6 xl:grid-cols-3">
                 <fieldset class="fieldset">
                   <legend class="fieldset-legend">Date*</legend>
@@ -5999,6 +6021,7 @@
   const isBoardingInvoice = {{ isBoardingService($appointment->service) ? 'true' : 'false' }};
   const lateCheckoutThresholdHours = parseFloat(@json($headerLateCheckoutThresholdHours ?? 1));
   const daycareHourlyRate = parseFloat(@json($headerLateCheckoutHourlyRate ?? 0));
+  const lateFeeEligible = {{ ($headerLateFeeEligible ?? false) ? 'true' : 'false' }};
   const lateCheckoutInitialFee = parseFloat(@json($invoiceLateCheckoutDaycareFee ?? 0));
   const hasPersistedLateCheckoutInvoiceFee = {{ ($persistedLateCheckoutInvoiceFee ?? 0) > 0 ? 'true' : 'false' }};
   const lateCheckoutFormulaFee = parseFloat(@json($headerLateCheckoutFormulaFee ?? 0));
@@ -6160,6 +6183,13 @@
   function syncLateCheckoutDaycareFeeRow() {
     const row = $('#late_checkout_daycare_fee_row');
     if (!row.length) {
+      return { fee: 0, lateHours: 0, isLate: false };
+    }
+
+    if (!lateFeeEligible) {
+      row.hide();
+      row.attr('data-initial-fee', '0.00');
+      row.find('td:nth-child(3)').text('$0.00');
       return { fee: 0, lateHours: 0, isLate: false };
     }
 
@@ -6922,6 +6952,36 @@
       }
     });
   }
+
+  $('#appointment_late_fee').on('change', function() {
+    const $toggle = $(this);
+    const enabled = $toggle.is(':checked');
+    $toggle.prop('disabled', true);
+    $('#appointment_late_fee_label').text(enabled ? 'Yes' : 'No');
+
+    $.ajax({
+      url: '{{ route("update-appointment-late-fee", $appointment->id) }}',
+      method: 'POST',
+      data: {
+        _token: '{{ csrf_token() }}',
+        apply_late_fee: enabled ? 1 : 0
+      },
+      success: function(response) {
+        if (response.status) {
+          window.location.reload();
+          return;
+        }
+        $toggle.prop('checked', !enabled).prop('disabled', false);
+        $('#appointment_late_fee_label').text(enabled ? 'No' : 'Yes');
+      },
+      error: function(xhr) {
+        $toggle.prop('checked', !enabled).prop('disabled', false);
+        $('#appointment_late_fee_label').text(enabled ? 'No' : 'Yes');
+        $('#alert_message').text(xhr.responseJSON?.message || 'Unable to update the late fee setting.');
+        alert_modal.showModal();
+      }
+    });
+  });
 
   function confirmCompleted() {
     // Get checkout form values

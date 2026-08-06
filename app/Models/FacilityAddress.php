@@ -11,5 +11,10 @@ class FacilityAddress extends Model
         'city',
         'state',
         'zip_code',
+        'late_fees_enabled',
+    ];
+
+    protected $casts = [
+        'late_fees_enabled' => 'boolean',
     ];
 }
