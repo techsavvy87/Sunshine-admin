@@ -4792,7 +4792,7 @@ class AppointmentController extends Controller
     private function isLateCheckoutDaycareFeeDescription($description): bool
     {
         $normalized = strtolower(trim((string) $description));
-        return in_array($normalized, ['late checkout daycare fee', 'late checkout fee'], true);
+        return in_array($normalized, ['late fee', 'late checkout daycare fee', 'late checkout fee'], true);
     }
 
     private function normalizeBoardingSpecialFeeItems(Appointment $appointment, array $items, array $checkinFlows = [], ?array $lateCheckoutData = null): array
@@ -4832,7 +4832,7 @@ class AppointmentController extends Controller
                 }
 
                 $hasLateCheckoutDaycareFeeItem = true;
-                $itemData['description'] = 'Late Checkout Daycare Fee';
+                $itemData['description'] = 'Late Fee';
                 $itemData['price'] = $lateCheckoutFee;
                 $itemData['type'] = 'service';
             }
@@ -4850,7 +4850,7 @@ class AppointmentController extends Controller
 
         if ($shouldApplyLateCheckoutFee && $lateCheckoutFee > 0 && !$hasLateCheckoutDaycareFeeItem) {
             $normalizedItems[] = [
-                'description' => 'Late Checkout Daycare Fee',
+                'description' => 'Late Fee',
                 'price' => $lateCheckoutFee,
                 'type' => 'service',
             ];

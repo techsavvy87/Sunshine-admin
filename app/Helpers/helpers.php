@@ -175,7 +175,9 @@ if (!function_exists('dedupeBoardingAutoFeeInvoiceItems')) {
     function dedupeBoardingAutoFeeInvoiceItems($items): array
     {
         $dedupeNames = [
+            'late fee',
             'late checkout daycare fee',
+            'late checkout fee',
             'flea/tick detection fee',
         ];
 
@@ -185,13 +187,16 @@ if (!function_exists('dedupeBoardingAutoFeeInvoiceItems')) {
         foreach (collect($items ?? [])->values() as $item) {
             $itemName = trim((string) data_get($item, 'item_name', data_get($item, 'description', '')));
             $normalizedName = strtolower($itemName);
+            $dedupeKey = in_array($normalizedName, ['late fee', 'late checkout daycare fee', 'late checkout fee'], true)
+                ? 'late fee'
+                : $normalizedName;
 
             if (in_array($normalizedName, $dedupeNames, true)) {
-                if (in_array($normalizedName, $seenNames, true)) {
+                if (in_array($dedupeKey, $seenNames, true)) {
                     continue;
                 }
 
-                $seenNames[] = $normalizedName;
+                $seenNames[] = $dedupeKey;
             }
 
             $normalizedItems[] = $item;

@@ -30,7 +30,7 @@ class LateFeeService
         $invoiceFee = 0;
         if ($invoice) {
             $lateItems = InvoiceItem::where('invoice_id', $invoice->id)->get()->filter(
-                fn ($item) => in_array(strtolower(trim((string) $item->item_name)), ['late checkout daycare fee', 'late checkout fee'], true)
+                fn ($item) => in_array(strtolower(trim((string) $item->item_name)), ['late fee', 'late checkout daycare fee', 'late checkout fee'], true)
             );
             $invoiceFee = floatval($lateItems->max('price') ?? 0);
             InvoiceItem::whereIn('id', $lateItems->pluck('id'))->delete();
@@ -38,7 +38,7 @@ class LateFeeService
             if ($fee > 0) {
                 $item = new InvoiceItem;
                 $item->invoice_id = $invoice->id;
-                $item->item_name = 'Late Checkout Daycare Fee';
+                $item->item_name = 'Late Fee';
                 $item->price = $fee;
                 $item->item_type = 'service';
                 $item->save();

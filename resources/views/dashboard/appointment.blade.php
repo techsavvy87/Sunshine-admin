@@ -370,7 +370,7 @@
                     @if($headerPickupIsLate && $headerLateDurationText)
                       <p class="text-warning">Late by {{ $headerLateDurationText }}</p>
                       @if($headerLateCheckoutDaycareFee > 0)
-                        <p class="text-warning">Late Checkout Daycare Fee: ${{ number_format($headerLateCheckoutDaycareFee, 2) }}</p>
+                        <p class="text-warning">Late Fee: ${{ number_format($headerLateCheckoutDaycareFee, 2) }}</p>
                       @endif
                     @elseif($headerPickupIsEarly && $headerEarlyDurationText)
                       <p class="text-info">Early by {{ $headerEarlyDurationText }}</p>
@@ -1569,7 +1569,7 @@
                           $displayInvoiceItems = collect(dedupeBoardingAutoFeeInvoiceItems($invoice->items))->values();
                           if (!shouldApplyLateFee(\App\Models\FacilityAddress::query()->orderBy('id')->first(), $appointment)) {
                             $displayInvoiceItems = $displayInvoiceItems->reject(function ($item) {
-                              return in_array(strtolower(trim((string) ($item->item_name ?? ''))), ['late checkout daycare fee', 'late checkout fee'], true);
+                              return in_array(strtolower(trim((string) ($item->item_name ?? ''))), ['late fee', 'late checkout daycare fee', 'late checkout fee'], true);
                             })->values();
                           }
                         @endphp
@@ -1639,7 +1639,7 @@
                         $persistedLateCheckoutInvoiceFee = 0;
                         if ($invoice && $invoice->items) {
                           foreach ($invoice->items as $invoiceItem) {
-                            if (($invoiceItem->item_type ?? '') === 'service' && trim((string) ($invoiceItem->item_name ?? '')) === 'Late Checkout Daycare Fee') {
+                            if (($invoiceItem->item_type ?? '') === 'service' && in_array(strtolower(trim((string) ($invoiceItem->item_name ?? ''))), ['late fee', 'late checkout daycare fee', 'late checkout fee'], true)) {
                               $persistedLateCheckoutInvoiceFee = max($persistedLateCheckoutInvoiceFee, floatval($invoiceItem->price ?? 0));
                             }
                           }
@@ -1667,7 +1667,7 @@
                       </tr>
                       <tr id="late_checkout_daycare_fee_row" class="service-row late-checkout-daycare-row" data-initial-fee="{{ number_format($persistedLateCheckoutInvoiceFee > 0 ? 0 : $invoiceLateCheckoutDaycareFee, 2, '.', '') }}" style="{{ $invoice || $persistedLateCheckoutInvoiceFee > 0 || $invoiceLateCheckoutDaycareFee <= 0 ? 'display:none;' : '' }}">
                         <td>{{ $row++ }}</td>
-                        <td width="56%">Late Checkout Daycare Fee</td>
+                        <td width="56%">Late Fee</td>
                         <td>${{ number_format($persistedLateCheckoutInvoiceFee > 0 ? $persistedLateCheckoutInvoiceFee : $invoiceLateCheckoutDaycareFee, 2) }}</td>
                         <td></td>
                       </tr>
@@ -6084,17 +6084,20 @@
 
   function shouldSkipDuplicateAutoFee(description, seenAutoFees) {
     const normalizedDescription = String(description || '').trim().toLowerCase();
-    const autoFeeDescriptions = ['late checkout daycare fee', 'flea/tick detection fee'];
+    const lateFeeDescriptions = ['late fee', 'late checkout daycare fee', 'late checkout fee'];
+    const autoFeeDescriptions = [...lateFeeDescriptions, 'flea/tick detection fee'];
 
     if (!autoFeeDescriptions.includes(normalizedDescription)) {
       return false;
     }
 
-    if (seenAutoFees.has(normalizedDescription)) {
+    const dedupeKey = lateFeeDescriptions.includes(normalizedDescription) ? 'late fee' : normalizedDescription;
+
+    if (seenAutoFees.has(dedupeKey)) {
       return true;
     }
 
-    seenAutoFees.add(normalizedDescription);
+    seenAutoFees.add(dedupeKey);
     return false;
   }
 
