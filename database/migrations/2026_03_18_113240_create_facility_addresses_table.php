@@ -17,6 +17,7 @@ return new class extends Migration
             $table->string('city')->nullable();
             $table->string('state')->nullable();
             $table->string('zip_code')->nullable();
+            $table->boolean('late_fees_enabled')->default(true);
             $table->timestamps();
         });
     }

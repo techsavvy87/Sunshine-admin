@@ -27,6 +27,7 @@ return new class extends Migration
             $table->decimal('estimated_price', 10, 2)->nullable();
             $table->json('metadata')->nullable();
             $table->date('end_date')->nullable();
+            $table->boolean('apply_late_fee')->default(true);
             $table->timestamps();
         });
     }
