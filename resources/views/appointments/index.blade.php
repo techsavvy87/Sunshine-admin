@@ -33,8 +33,8 @@
     <div class="card-body p-4">
       <div class="flex items-center justify-between mt-3">
         <form id="search_form" class="w-full" method="GET" action="{{ route('appointments') }}">
-          <div class="grow grid grid-cols-1 gap-2 xl:grid-cols-4">
-            <div class="grid grid-cols-1 gap-2 xl:grid-cols-3 col-span-2">
+          <div class="grow grid grid-cols-1 gap-2 xl:grid-cols-5">
+            <div class="grid grid-cols-1 gap-2 xl:grid-cols-4 col-span-3">
               <input type="text" class="input input-sm w-full" placeholder="Customer/Pet" name="customer" value="{{ $customerPet }}"/>
               <select class="select select-sm w-full" name="service" value="{{ $serviceId }}">
                 <option value="" hidden selected>Choose Service</option>
@@ -46,6 +46,11 @@
                 <option value="" hidden selected>Choose Staff</option>
                 @foreach($staffs as $staff)
                 <option value="{{ $staff->id }}" {{ $staffId == $staff->id ? 'selected' : '' }}>{{ $staff->profile ? $staff->profile->first_name . " " . $staff->profile->last_name : '' }}</option>
+                @endforeach
+              </select>
+              <select class="select select-sm w-full" name="status" value="{{ $status }}">
+                @foreach($statusOptions as $statusValue => $statusLabel)
+                  <option value="{{ $statusValue }}" {{ (string) $status === (string) $statusValue ? 'selected' : '' }}>{{ $statusLabel }}</option>
                 @endforeach
               </select>
             </div>

@@ -443,7 +443,9 @@ class DashboardController extends Controller
             $query->whereNot('title', 'customer');
         })->get();
 
-        return view('dashboard.kanban-service', compact('appointments', 'scheduledAppointments', 'customerPet', 'staffId', 'staffs', 'id', 'service', 'infoMessage', 'showScheduledFilters', 'scheduledDate', 'scheduledStartDate', 'scheduledEndDate'));
+        $waitListedAppointments = $appointments->where('status', 'wait listed')->values();
+
+        return view('dashboard.kanban-service', compact('appointments', 'scheduledAppointments', 'waitListedAppointments', 'customerPet', 'staffId', 'staffs', 'id', 'service', 'infoMessage', 'showScheduledFilters', 'scheduledDate', 'scheduledStartDate', 'scheduledEndDate'));
     }
 
     public function appointmentDetail($id)

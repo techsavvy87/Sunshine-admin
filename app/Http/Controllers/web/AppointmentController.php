@@ -65,6 +65,19 @@ class AppointmentController extends Controller
         $staffId = $request->get('staff');
         $status = $request->get('status');
 
+        $statusOptions = [
+            '' => 'All Statuses',
+            'checked_in' => 'Scheduled',
+            'wait listed' => 'Wait Listed',
+            'in_progress' => 'On Property',
+            'completed' => 'Completed',
+            'finished' => 'Finished',
+            'cancelled' => 'Cancelled',
+            'no_show' => 'No Show',
+            'issue' => 'Issue',
+            'confirmed' => 'Confirmed',
+        ];
+
         $datetimes = $request->get('datetimes');
 
         // get appointments
@@ -105,7 +118,7 @@ class AppointmentController extends Controller
                     ->whereRaw("CONCAT(date, ' ', end_time) <= ?", [$endDateTime]);
             });
         }
-        $appointments = $appointments->orderBy('created_at', 'desc')->paginate($perPage);
+        $appointments = $appointments->orderBy('created_at', 'desc')->paginate($perPage)->withQueryString();
 
         $kennelIds = $appointments->getCollection()
             ->pluck('kennel_id')
@@ -134,7 +147,7 @@ class AppointmentController extends Controller
             $query->whereNot('title', 'customer');
         })->get();
 
-        return view('appointments.index', compact('appointments', 'perPage', 'services', 'staffs', 'datetimes', 'customerPet', 'serviceId', 'staffId', 'status', 'roomByKennel'));
+        return view('appointments.index', compact('appointments', 'perPage', 'services', 'staffs', 'datetimes', 'customerPet', 'serviceId', 'staffId', 'status', 'roomByKennel', 'statusOptions'));
     }
 
     public function add(Request $request)

@@ -226,44 +226,104 @@
         </div>
       </form>
       <div class="kanban-board-wrap">
-        <div class="grid grid-cols-1 xl:grid-cols-4 gap-4 kanban-board">
-          @php
-            $isBoardingOrDaycare = $service->category && (str_contains(strtolower($service->category->name), 'boarding') || str_contains(strtolower($service->category->name), 'daycare'));
-            $statuses = [
-              'checked_in' => 'Scheduled',
-              'in_progress' => $isBoardingOrDaycare ? 'On Property' : 'In Progress',
-              'completed' => 'Completed',
-              'issue' => 'Issue',
-            ];
+        @php
+          $isBoardingOrDaycare = $service->category && (str_contains(strtolower($service->category->name), 'boarding') || str_contains(strtolower($service->category->name), 'daycare'));
+          $showWaitListed = isBoardingService($service);
+          $boardGridClass = $showWaitListed ? 'xl:grid-cols-5' : 'xl:grid-cols-4';
+          $boardSections = [
+            [
+              'key' => 'checked_in',
+              'label' => 'Scheduled',
+              'color' => '#e0e7ff',
+              'items' => $scheduledAppointments,
+              'route' => 'appointment-dashboard',
+            ],
+          ];
 
-            $statusColors = [
-              'checked_in' => '#e0e7ff',   // light indigo (or pick your preferred color)
-              'in_progress' => '#ede9fe',   // light purple
-              'completed' => '#bbf7d0',   // light green
-              'issue' => '#fecaca',        // light red
-            ];
-          @endphp
-          @foreach($statuses as $statusKey => $statusLabel)
-            <div class="card shadow kanban-col" style="background-color: {{ $statusColors[$statusKey] ?? '#f3f4f6' }};">
+          if ($showWaitListed) {
+            array_unshift($boardSections, [
+              'key' => 'wait listed',
+              'label' => 'Wait Listed',
+              'color' => '#fef3c7',
+              'items' => $waitListedAppointments ?? collect(),
+              'route' => 'edit-appointment',
+            ]);
+          }
+
+          $boardSections = array_merge($boardSections, [
+            [
+              'key' => 'in_progress',
+              'label' => $isBoardingOrDaycare ? 'On Property' : 'In Progress',
+              'color' => '#ede9fe',
+              'items' => $appointments->where('status', 'in_progress')->values(),
+              'route' => 'appointment-dashboard',
+            ],
+            [
+              'key' => 'completed',
+              'label' => 'Completed',
+              'color' => '#bbf7d0',
+              'items' => $appointments->where('status', 'completed')->values(),
+              'route' => 'appointment-dashboard',
+            ],
+            [
+              'key' => 'issue',
+              'label' => 'Issue',
+              'color' => '#fecaca',
+              'items' => $appointments->where('status', 'issue')->values(),
+              'route' => 'appointment-dashboard',
+            ],
+          ]);
+        @endphp
+        <div class="grid grid-cols-1 {{ $boardGridClass }} gap-4 kanban-board">
+          @foreach($boardSections as $section)
+            <div class="card shadow kanban-col" style="background-color: {{ $section['color'] ?? '#f3f4f6' }};">
               <div class="card-body">
-                <div class="kanban-col-head flex items-center justify-between" style="background-color: {{ $statusColors[$statusKey] ?? '#f3f4f6' }};">
-                  <h4 class="font-semibold text-sm xl:text-base" style="color: black">{{ $statusLabel }}</h4>
-                  <span class="badge badge-sm badge-outline">{{ $statusKey === 'checked_in' ? $scheduledAppointments->count() : $appointments->where('status', $statusKey)->count() }}</span>
-                  @if ($statusKey == 'checked_in')
+                <div class="kanban-col-head flex items-center justify-between" style="background-color: {{ $section['color'] ?? '#f3f4f6' }};">
+                  <h4 class="font-semibold text-sm xl:text-base" style="color: black">{{ $section['label'] }}</h4>
+                  <span class="badge badge-sm badge-outline">{{ $section['items']->count() }}</span>
+                  @if ($section['key'] == 'checked_in')
                   <a class="btn btn-square btn-ghost btn-xs" href="{{ route('add-appointment', ['service_id' => $id]) }}" title="Add Appointment">
                     <span class="iconify lucide--plus size-3 font-medium"></span>
                   </a>
                   @endif
                 </div>
                 <div class="space-y-2 kanban-col-list">
-                  @forelse(($statusKey === 'checked_in' ? $scheduledAppointments : $appointments->where('status', $statusKey)) as $appointment)
+                  @forelse($section['items'] as $appointment)
                     @php
                       $cardPets = $appointment->family_pets;
                       if ($cardPets->isEmpty() && $appointment->pet) {
                         $cardPets = collect([$appointment->pet]);
                       }
+
+                      $checkInDateTime = 'Not set';
+                      if (!empty($appointment->date)) {
+                        $checkInBase = $appointment->date . ' ' . ($appointment->start_time ?? '00:00:00');
+                        try {
+                          $checkInDateTime = \Carbon\Carbon::parse($checkInBase)->format('M j, Y h:i A');
+                        } catch (\Exception $e) {
+                          $checkInDateTime = \Carbon\Carbon::parse($appointment->date)->format('M j, Y');
+                        }
+                      }
+
+                      $pickupDateTime = 'Not set';
+                      if (!empty($appointment->end_date)) {
+                        $pickupBase = $appointment->end_date . ' ' . ($appointment->end_time ?? '00:00:00');
+                        try {
+                          $pickupDateTime = \Carbon\Carbon::parse($pickupBase)->format('M j, Y h:i A');
+                        } catch (\Exception $e) {
+                          $pickupDateTime = \Carbon\Carbon::parse($appointment->end_date)->format('M j, Y');
+                        }
+                      } elseif (!empty($appointment->end_time) && !empty($appointment->date)) {
+                        try {
+                          $pickupDateTime = \Carbon\Carbon::parse($appointment->date . ' ' . $appointment->end_time)->format('M j, Y h:i A');
+                        } catch (\Exception $e) {
+                          $pickupDateTime = 'Not set';
+                        }
+                      }
+
+                      $assignmentLabel = trim((string) ($appointment->assignment_label ?? ''));
                     @endphp
-                    <div class="card bg-base-100 shadow-sm p-2 relative kanban-card" style="cursor: pointer;" onclick="window.location='{{ route('appointment-dashboard', $appointment->id) }}'">
+                    <div class="card bg-base-100 shadow-sm p-2 relative kanban-card" style="cursor: pointer;" onclick="window.location='{{ route($section['route'] ?? 'appointment-dashboard', $appointment->id) }}'">
                       <div class="flex gap-3 items-start">
                         <div class="flex w-14 shrink-0 flex-col gap-1">
                           @foreach($cardPets->take(3) as $pet)
@@ -290,20 +350,18 @@
                             {{ $appointment->customer->profile ? $appointment->customer->profile->first_name . " " . $appointment->customer->profile->last_name : $appointment->customer->name }}
                           </p>
                           <p class="text-xs kanban-muted">
-                            <span class="text-base-content/80">Staff: </span>
-                            {{ $appointment->staff_id ? ($appointment->staff->profile ? $appointment->staff->profile->first_name . " " . $appointment->staff->profile->last_name : $appointment->staff->name) : 'Unassigned' }}
+                            <span class="text-base-content/80">Check-in: </span>
+                            {{ $checkInDateTime }}
                           </p>
-                          @if($appointment->end_time)
                           <p class="text-xs kanban-muted">
                             <span class="text-base-content/80">Pickup: </span>
-                            {{ \Carbon\Carbon::createFromFormat('H:i:s', $appointment->end_time)->format('h:i A') }}
+                            {{ $pickupDateTime }}
                           </p>
-                          @endif
                           <p class="text-xs kanban-muted">
                             <span class="text-base-content/80">Assignment: </span>
-                            {{ $appointment->assignment_label ?? 'Not assigned' }}
+                            {{ $assignmentLabel !== '' ? $assignmentLabel : 'Not Assigned' }}
                           </p>
-                          @if($statusKey === 'issue')
+                          @if($section['key'] === 'issue')
                             <div class="absolute top-2 right-2">
                               <span class="iconify lucide--triangle-alert size-4 text-red-600"></span>
                             </div>
