@@ -198,6 +198,7 @@ class PetController extends Controller
             'pet_name' => 'required|string',
             'sex' => 'required|in:male,female',
             'type' => 'required|in:Dog,Cat',
+            'birth_date' => 'required|date_format:m/d/Y',
             'breed' => 'required|string',
             'size' => 'required|exists:weight_ranges,id',
             'weight' => 'required|numeric|min:0',
@@ -220,7 +221,7 @@ class PetController extends Controller
         $pet->sex = $request->sex;
         $pet->type = $request->type;
         if ($request->filled('birth_date'))
-            $pet->birthdate = Carbon::parse($request->birth_date);
+            $pet->birthdate = Carbon::createFromFormat('m/d/Y', $request->birth_date)->format('Y-m-d');
         if ($request->filled('age'))
             $pet->age = $request->age;
         $pet->breed_id = $request->breed;
@@ -347,6 +348,7 @@ class PetController extends Controller
             'pet_name' => 'required|string',
             'sex' => 'required|in:male,female',
             'type' => 'required|in:Dog,Cat',
+            'birth_date' => 'nullable|date_format:m/d/Y',
             'breed' => 'required|string',
             'size' => 'required|exists:weight_ranges,id',
             'weight' => 'required|numeric|min:0',
@@ -373,7 +375,7 @@ class PetController extends Controller
         $pet->sex = $request->sex;
         $pet->type = $request->type;
         if ($request->filled('birth_date'))
-            $pet->birthdate = Carbon::parse($request->birth_date);
+            $pet->birthdate = Carbon::createFromFormat('m/d/Y', $request->birth_date)->format('Y-m-d');
         else
             $pet->birthdate = null;
         if ($request->filled('age'))

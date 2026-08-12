@@ -250,22 +250,11 @@
               </select>
             </div>
             <div class="space-y-2">
-              <input type="hidden" id="birth_date" name="birth_date" />
-              <label class="fieldset-label" for="birthdate">Birth Date</label>
-              <div class="dropdown w-full">
-                <div role="button" class="btn btn-outline border-base-300 flex items-center gap-2" tabindex="0">
-                  <span class="iconify lucide--calendar text-base-content/80 size-3.5"></span>
-                    <p class="text-start" id="button_cally_target">{{ $pet->birthdate ? Carbon\Carbon::parse($pet->birthdate)->format('Y-m-d') : '-' }}</p>
-                  <span class="iconify lucide--chevron-down text-base-content/70 size-4"></span>
-                </div>
-                <div class="dropdown-content mt-2" tabindex="0">
-                  <calendar-date class="cally bg-base-100 rounded-box shadow-md transition-all hover:shadow-lg" id="button_cally_element" value="{{ $pet->birthdate ? Carbon\Carbon::parse($pet->birthdate)->format('Y-m-d') : '-' }}" >
-                    <span class="iconify lucide--chevron-left" slot="previous"></span>
-                    <span class="iconify lucide--chevron-right" slot="next"></span>
-                    <calendar-month></calendar-month>
-                  </calendar-date>
-                </div>
-              </div>
+              <label class="fieldset-label" for="birth_date">Birth Date</label>
+              <input class="input w-full" id="birth_date" name="birth_date" type="text" inputmode="numeric"
+                placeholder="MM/DD/YYYY" maxlength="10"
+                value="{{ old('birth_date', $pet->birthdate ? Carbon\Carbon::parse($pet->birthdate)->format('m/d/Y') : '') }}"
+                pattern="(0[1-9]|1[0-2])/(0[1-9]|[12][0-9]|3[01])/[0-9]{4}" />
             </div>
             <div class="space-y-2">
               <label class="fieldset-label" for="age">Age</label>
@@ -1602,13 +1591,10 @@
       });
     }
 
-    document.getElementById("button_cally_element")?.addEventListener("change", (e) => {
-      document.getElementById("button_cally_target").innerText = e.target.value
-
-      // Calculate age in years
-      const birthDateStr = e.target.value;
-      if (birthDateStr && birthDateStr !== '-') {
-        const birthDate = new Date(birthDateStr);
+    document.getElementById("birth_date")?.addEventListener("change", (e) => {
+      const parts = e.target.value.split('/');
+      if (parts.length === 3) {
+        const birthDate = new Date(Number(parts[2]), Number(parts[0]) - 1, Number(parts[1]));
         const today = new Date();
         let age = today.getFullYear() - birthDate.getFullYear();
         const m = today.getMonth() - birthDate.getMonth();
@@ -2376,7 +2362,7 @@
     function savePet() {
       const petName = $('#pet_name').val();
       const sex = $('#sex').val();
-      const birthDate = $('#button_cally_target').text();
+      const birthDate = $('#birth_date').val().trim();
       const age = $('#age').val();
       const breed = $('#breed').val();
       const size = $('#size').val();
@@ -2396,6 +2382,12 @@
       // validate if birthDate and age is empty at the same time
       if (!birthDate && !age) {
         $('#alert_message').text('Please fill in either Birth Date or Age.');
+        alert_modal.showModal();
+        return;
+      }
+
+      if (birthDate && !isValidBirthDate(birthDate)) {
+        $('#alert_message').text('Birth Date must be a valid date in MM/DD/YYYY format.');
         alert_modal.showModal();
         return;
       }
@@ -2439,11 +2431,17 @@
       });
       $('#certificate_ids').val(certificateIds.join(','));
 
-      if (birthDate) {
-        $('#birth_date').val(birthDate);
-      }
-
       $('#update_form').submit();
+    }
+
+    function isValidBirthDate(value) {
+      const match = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(value);
+      if (!match) return false;
+
+      const date = new Date(Number(match[3]), Number(match[1]) - 1, Number(match[2]));
+      return date.getFullYear() === Number(match[3])
+        && date.getMonth() === Number(match[1]) - 1
+        && date.getDate() === Number(match[2]);
     }
 
   </script>
