@@ -338,6 +338,13 @@
           'months' => $vaccination->months,
         ];
       })->values();
+
+      $existingVeterinarians = $pet->veterinarian_records->map(function ($veterinarian) {
+        return [
+          'name' => $veterinarian->name ?? '',
+          'phone' => $veterinarian->phone ?? '',
+        ];
+      })->values();
     @endphp
     <input type="hidden" id="vaccinations" name="vaccinations" />
     <div class="grid grid-cols-1 mt-5 gap-5 xl:grid-cols-5">
@@ -404,17 +411,14 @@
         </div>
         <div class="card bg-base-100 shadow mt-5">
           <div class="card-body">
-            <div class="card-title">Veterinarian Information</div>
-            <div class="fieldset mt-2 grid grid-cols-1 gap-4 lg:grid-cols-2">
-              <div class="space-y-2">
-                <label class="fieldset-label" for="veterinarian_name">Name/Facility*</label>
-                <input class="input w-full" id="veterinarian_name" placeholder="e.g. Animal Hospital" type="text" name="veterinarian_name" value="{{ $pet->veterinarian_name }}"/>
-              </div>
-              <div class="space-y-2">
-                <label class="fieldset-label" for="veterinarian_phone">Phone*</label>
-                <input class="input w-full" id="veterinarian_phone" placeholder="e.g. (123) 456-7890" type="text" name="veterinarian_phone" oninput="formatPhoneNumber(this)" value="{{ $pet->veterinarian_phone }}"/>
-              </div>
+            <div class="card-title flex items-center justify-between">
+              <span>Veterinarian Information</span>
+              <button type="button" class="btn btn-primary btn-sm" onclick="addVeterinarianRow()">
+                <span class="iconify lucide--plus size-4"></span>
+                Add Veterinarian
+              </button>
             </div>
+            <div class="mt-2 space-y-3" id="veterinarians_container"></div>
           </div>
         </div>
       </div>
@@ -1423,9 +1427,61 @@
   <script>
     const vaccinationTypeOptions = @json($vaccinationTypeOptions);
     const existingVaccinations = @json($existingVaccinations);
+    const existingVeterinarians = @json($existingVeterinarians);
     const vaccinationRemoveActiveColor = '#f31260';
     const vaccinationRemoveDisabledColor = '#b3b8c3';
     let vaccinationRowCounter = 0;
+    let veterinarianRowCounter = 0;
+
+    function updateVeterinarianRemoveButtons() {
+      const rows = document.querySelectorAll('#veterinarians_container .veterinarian-row');
+      rows.forEach((row) => {
+        const removeButton = row.querySelector('.btn-remove-veterinarian');
+        if (!removeButton) {
+          return;
+        }
+
+        removeButton.disabled = rows.length <= 1;
+      });
+    }
+
+    function addVeterinarianRow(initialData = {}) {
+      veterinarianRowCounter += 1;
+      const rowId = `veterinarian_row_${veterinarianRowCounter}`;
+      const name = (initialData.name || '').replace(/"/g, '&quot;');
+      const phone = (initialData.phone || '').replace(/"/g, '&quot;');
+
+      const rowHtml = `
+        <div class="veterinarian-row fieldset mt-2 grid grid-cols-1 gap-4 lg:grid-cols-3" id="${rowId}">
+          <div class="space-y-2">
+            <label class="fieldset-label">Name/Facility*</label>
+            <input class="input w-full veterinarian-name" type="text" placeholder="e.g. Animal Hospital" name="veterinarians[${veterinarianRowCounter}][name]" value="${name}" />
+          </div>
+          <div class="space-y-2">
+            <label class="fieldset-label">Phone*</label>
+            <input class="input w-full veterinarian-phone" type="text" placeholder="e.g. (123) 456-7890" name="veterinarians[${veterinarianRowCounter}][phone]" value="${phone}" oninput="formatPhoneNumber(this)" />
+          </div>
+          <div class="flex items-end pb-0.5">
+            <button type="button" class="btn btn-ghost btn-sm p-1 btn-remove-veterinarian" title="Remove" onclick="removeVeterinarianRow('${rowId}')">
+              <span class="iconify lucide--x size-4 text-error"></span>
+            </button>
+          </div>
+        </div>
+      `;
+
+      $('#veterinarians_container').append(rowHtml);
+      updateVeterinarianRemoveButtons();
+    }
+
+    function removeVeterinarianRow(rowId) {
+      const row = document.getElementById(rowId);
+      if (!row) {
+        return;
+      }
+
+      row.remove();
+      updateVeterinarianRemoveButtons();
+    }
 
 
     function unlockPageScroll() {
@@ -2080,6 +2136,12 @@
         addVaccinationRow();
       }
 
+      if (existingVeterinarians.length > 0) {
+        existingVeterinarians.forEach((veterinarian) => addVeterinarianRow(veterinarian));
+      } else {
+        addVeterinarianRow();
+      }
+
       unlockPageScroll();
 
       $(document)
@@ -2359,6 +2421,15 @@
       });
     }
 
+    function deleteCertificate(certificateId) {
+      const certificateRow = document.getElementById(`certificate_${certificateId}`);
+      if (!certificateRow) {
+        return;
+      }
+
+      certificateRow.remove();
+    }
+
     function savePet() {
       const petName = $('#pet_name').val();
       const sex = $('#sex').val();
@@ -2370,11 +2441,32 @@
       const color = $('#color').val();
       const coatType = $('#coat_type').val();
       const owner = $('#owner').val();
-      const veterinarianName = $('#veterinarian_name').val();
-      const veterinarianPhone = $('#veterinarian_phone').val();
 
-      if (!petName || !sex || !breed || !weight || !color || !coatType || !owner || !veterinarianName || !veterinarianPhone) {
+      if (!petName || !sex || !breed || !weight || !color || !coatType || !owner) {
         $('#alert_message').text('Please fill in all required fields.');
+        alert_modal.showModal();
+        return;
+      }
+
+      const veterinarianRows = $('#veterinarians_container .veterinarian-row');
+      if (!veterinarianRows.length) {
+        $('#alert_message').text('Please add at least one veterinarian.');
+        alert_modal.showModal();
+        return;
+      }
+
+      let hasInvalidVeterinarian = false;
+      veterinarianRows.each(function() {
+        const name = ($(this).find('.veterinarian-name').val() || '').trim();
+        const phone = ($(this).find('.veterinarian-phone').val() || '').trim();
+        if (!name || !phone) {
+          hasInvalidVeterinarian = true;
+          return false;
+        }
+      });
+
+      if (hasInvalidVeterinarian) {
+        $('#alert_message').text('Please complete all veterinarian name and phone fields.');
         alert_modal.showModal();
         return;
       }

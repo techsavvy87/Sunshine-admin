@@ -989,16 +989,30 @@
                             value="react" {{ $process && $process->flows && isset($process->flows['nail_trimming']) && $process->flows['nail_trimming'] === 'react' ? 'checked' : '' }} />
                           <span class="text-sm">Reacts</span>
                         </label>
+                      @php
+                        $petVeterinarians = collect($appointment->pet->veterinarian_records ?? [])->filter(function ($veterinarian) {
+                          return trim((string) ($veterinarian->name ?? '')) !== '' || trim((string) ($veterinarian->phone ?? '')) !== '';
+                        })->values();
+                      @endphp
+                      <div class="space-y-1">
+                        @forelse($petVeterinarians as $veterinarian)
+                          <div class="grid grid-cols-2 gap-1">
+                            <p class="text-sm text-base-content/70 flex items-center gap-1">
+                              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-stethoscope-icon lucide-stethoscope"><path d="M11 2v2"/><path d="M5 2v2"/><path d="M5 3H4a2 2 0 0 0-2 2v4a6 6 0 0 0 12 0V5a2 2 0 0 0-2-2h-1"/><path d="M8 15a6 6 0 0 0 12 0v-3"/><circle cx="20" cy="10" r="2"/></svg>
+                              {{ $veterinarian->name ?: 'N/A' }}
+                            </p>
+                            <p class="text-sm text-base-content/70 flex items-center gap-1">
+                              <span class="iconify lucide--phone text-base-content/70 size-3"></span>
+                              {{ $veterinarian->phone ?: 'N/A' }}
+                            </p>
+                          </div>
+                        @empty
+                          <div class="grid grid-cols-2 gap-1">
+                            <p class="text-sm text-base-content/70">N/A</p>
+                            <p class="text-sm text-base-content/70">N/A</p>
+                          </div>
+                        @endforelse
                       </div>
-                    </div>
-                  </div>
-                  <div>
-                    <p class="font-medium mb-2">Ear cleaning:</p>
-                    <div class="mb-2 ms-4">
-                      <div class="flex items-center gap-5">
-                        <label class="flex items-center gap-2">
-                          <input type="radio" class="radio radio-xs" name="ear_cleaning"
-                            value="accept" {{ $process && $process->flows && isset($process->flows['ear_cleaning']) && $process->flows['ear_cleaning'] === 'accept' ? 'checked' : '' }} />
                           <span class="text-sm">Accepts</span>
                         </label>
                         <label class="flex items-center gap-2">
@@ -1876,15 +1890,29 @@
                     </div>
                     <div class="mt-3">
                       <span class="font-medium text-sm text-base-content/80">Veterinarian</span>
-                      <div class="grid grid-cols-2 gap-1">
-                        <p class="text-sm text-base-content/70 flex items-center gap-1">
-                          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-stethoscope-icon lucide-stethoscope"><path d="M11 2v2"/><path d="M5 2v2"/><path d="M5 3H4a2 2 0 0 0-2 2v4a6 6 0 0 0 12 0V5a2 2 0 0 0-2-2h-1"/><path d="M8 15a6 6 0 0 0 12 0v-3"/><circle cx="20" cy="10" r="2"/></svg>
-                          {{ $pet->veterinarian_name ?? 'N/A' }}
-                        </p>
-                        <p class="text-sm text-base-content/70 flex items-center gap-1">
-                          <span class="iconify lucide--phone text-base-content/70 size-3"></span>
-                          {{ $pet->veterinarian_phone ?? 'N/A' }}
-                        </p>
+                      @php
+                        $petVeterinarians = collect($pet->veterinarian_records ?? [])->filter(function ($veterinarian) {
+                          return trim((string) ($veterinarian->name ?? '')) !== '' || trim((string) ($veterinarian->phone ?? '')) !== '';
+                        })->values();
+                      @endphp
+                      <div class="space-y-1">
+                        @forelse($petVeterinarians as $veterinarian)
+                          <div class="grid grid-cols-2 gap-1">
+                            <p class="text-sm text-base-content/70 flex items-center gap-1">
+                              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-stethoscope-icon lucide-stethoscope"><path d="M11 2v2"/><path d="M5 2v2"/><path d="M5 3H4a2 2 0 0 0-2 2v4a6 6 0 0 0 12 0V5a2 2 0 0 0-2-2h-1"/><path d="M8 15a6 6 0 0 0 12 0v-3"/><circle cx="20" cy="10" r="2"/></svg>
+                              {{ $veterinarian->name ?: 'N/A' }}
+                            </p>
+                            <p class="text-sm text-base-content/70 flex items-center gap-1">
+                              <span class="iconify lucide--phone text-base-content/70 size-3"></span>
+                              {{ $veterinarian->phone ?: 'N/A' }}
+                            </p>
+                          </div>
+                        @empty
+                          <div class="grid grid-cols-2 gap-1">
+                            <p class="text-sm text-base-content/70">N/A</p>
+                            <p class="text-sm text-base-content/70">N/A</p>
+                          </div>
+                        @endforelse
                       </div>
                     </div>
                   </div>

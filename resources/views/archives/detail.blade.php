@@ -444,24 +444,38 @@
                           <p class="font-medium text-sm text-base-content/80">Feeding:</p>
                           <div class="mb-1 ms-2">
                             @php
-                              $feedingAm = false;
-                              $feedingPm = false;
-                              if (isset($checkin->flows['feeding_am']) && ($checkin->flows['feeding_am'] === true || $checkin->flows['feeding_am'] === 'true')) {
-                                $feedingAm = true;
-                              }
-                              if (isset($checkin->flows['feeding_pm']) && ($checkin->flows['feeding_pm'] === true || $checkin->flows['feeding_pm'] === 'true')) {
-                                $feedingPm = true;
-                              }
-                              // Backward compatibility: check old feeding_time format
-                              if (!$feedingAm && !$feedingPm && isset($checkin->flows['feeding_time'])) {
-                                $feedingTime = $checkin->flows['feeding_time'];
-                                if ($feedingTime === 'AM' || $feedingTime === 'AM/PM') {
-                                  $feedingAm = true;
-                                }
-                                if ($feedingTime === 'PM' || $feedingTime === 'AM/PM') {
-                                  $feedingPm = true;
-                                }
-                              }
+                            @php
+                              $petVeterinarians = collect($appointment->pet->veterinarian_records ?? [])->filter(function ($veterinarian) {
+                                return trim((string) ($veterinarian->name ?? '')) !== '' || trim((string) ($veterinarian->phone ?? '')) !== '';
+                              })->values();
+                            @endphp
+                            <div class="space-y-1">
+                              @forelse($petVeterinarians as $veterinarian)
+                                <div class="grid grid-cols-2 gap-1">
+                                  <p class="text-sm text-base-content/70 flex items-center gap-1">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
+                                      fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                      stroke-linejoin="round" class="lucide lucide-stethoscope-icon lucide-stethoscope">
+                                      <path d="M11 2v2" />
+                                      <path d="M5 2v2" />
+                                      <path d="M5 3H4a2 2 0 0 0-2 2v4a6 6 0 0 0 12 0V5a2 2 0 0 0-2-2h-1" />
+                                      <path d="M8 15a6 6 0 0 0 12 0v-3" />
+                                      <circle cx="20" cy="10" r="2" />
+                                    </svg>
+                                    {{ $veterinarian->name ?: 'N/A' }}
+                                  </p>
+                                  <p class="text-sm text-base-content/70 flex items-center gap-1">
+                                    <span class="iconify lucide--phone text-base-content/70 size-3"></span>
+                                    {{ $veterinarian->phone ?: 'N/A' }}
+                                  </p>
+                                </div>
+                              @empty
+                                <div class="grid grid-cols-2 gap-1">
+                                  <p class="text-sm text-base-content/70">N/A</p>
+                                  <p class="text-sm text-base-content/70">N/A</p>
+                                </div>
+                              @endforelse
+                            </div>
                             @endphp
                             <div class="flex items-center gap-4">
                               <div class="flex items-center gap-1">
@@ -2534,15 +2548,29 @@
                   </div>
                   <div class="mt-3">
                     <span class="font-medium text-sm text-base-content/80">Veterinarian</span>
-                    <div class="grid grid-cols-2 gap-1">
-                      <p class="text-sm text-base-content/70 flex items-center gap-1">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-stethoscope-icon lucide-stethoscope"><path d="M11 2v2"/><path d="M5 2v2"/><path d="M5 3H4a2 2 0 0 0-2 2v4a6 6 0 0 0 12 0V5a2 2 0 0 0-2-2h-1"/><path d="M8 15a6 6 0 0 0 12 0v-3"/><circle cx="20" cy="10" r="2"/></svg>
-                        {{ $appointment->pet->veterinarian_name }}
-                      </p>
-                      <p class="text-sm text-base-content/70 flex items-center gap-1">
-                        <span class="iconify lucide--phone text-base-content/70 size-3"></span>
-                        {{ $appointment->pet->veterinarian_phone }}
-                      </p>
+                    @php
+                      $petVeterinarians = collect($appointment->pet->veterinarian_records ?? [])->filter(function ($veterinarian) {
+                        return trim((string) ($veterinarian->name ?? '')) !== '' || trim((string) ($veterinarian->phone ?? '')) !== '';
+                      })->values();
+                    @endphp
+                    <div class="space-y-1">
+                      @forelse($petVeterinarians as $veterinarian)
+                        <div class="grid grid-cols-2 gap-1">
+                          <p class="text-sm text-base-content/70 flex items-center gap-1">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-stethoscope-icon lucide-stethoscope"><path d="M11 2v2"/><path d="M5 2v2"/><path d="M5 3H4a2 2 0 0 0-2 2v4a6 6 0 0 0 12 0V5a2 2 0 0 0-2-2h-1"/><path d="M8 15a6 6 0 0 0 12 0v-3"/><circle cx="20" cy="10" r="2"/></svg>
+                            {{ $veterinarian->name ?: 'N/A' }}
+                          </p>
+                          <p class="text-sm text-base-content/70 flex items-center gap-1">
+                            <span class="iconify lucide--phone text-base-content/70 size-3"></span>
+                            {{ $veterinarian->phone ?: 'N/A' }}
+                          </p>
+                        </div>
+                      @empty
+                        <div class="grid grid-cols-2 gap-1">
+                          <p class="text-sm text-base-content/70">N/A</p>
+                          <p class="text-sm text-base-content/70">N/A</p>
+                        </div>
+                      @endforelse
                     </div>
                   </div>
                 </div>

@@ -22,6 +22,34 @@ class PetProfile extends Model
         return $this->hasMany(PetVaccination::class, 'pet_profile_id', 'id');
     }
 
+    public function veterinarians()
+    {
+        return $this->hasMany(PetVeterinarian::class, 'pet_profile_id', 'id');
+    }
+
+    public function getVeterinarianRecordsAttribute()
+    {
+        $records = $this->relationLoaded('veterinarians')
+            ? $this->veterinarians
+            : $this->veterinarians()->get();
+
+        if ($records->isNotEmpty()) {
+            return $records;
+        }
+
+        $name = trim((string) ($this->veterinarian_name ?? ''));
+        $phone = trim((string) ($this->veterinarian_phone ?? ''));
+
+        if ($name === '' && $phone === '') {
+            return collect();
+        }
+
+        return collect([(object) [
+            'name' => $name,
+            'phone' => $phone,
+        ]]);
+    }
+
     public function vaccinationAlerts()
     {
         return $this->hasMany(PetVaccinationAlert::class, 'pet_profile_id', 'id');
