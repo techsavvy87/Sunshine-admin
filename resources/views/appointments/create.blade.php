@@ -1720,10 +1720,18 @@
         success: function(response) {
           if (response.conflict && $('#allow_assignment_conflict').val() !== '1') {
             var messageText = response.message || 'The selected assignment is already in use during this time period.';
-            messageText += '<br><br>Do you want to continue anyway?';
-            $('#assignment_message').html(messageText);
+            var isBlocking = response.conflict_type === 'kennel_blocked';
             $('#assignment_conflict_info').val(JSON.stringify(response));
-            $('#continue_anyway_btn').show();
+
+            if (isBlocking) {
+              messageText += '<br><br>Please choose another kennel.';
+              $('#continue_anyway_btn').hide();
+            } else {
+              messageText += '<br><br>Do you want to continue anyway?';
+              $('#continue_anyway_btn').show();
+            }
+
+            $('#assignment_message').html(messageText);
             assignment_modal.showModal();
             return;
           }

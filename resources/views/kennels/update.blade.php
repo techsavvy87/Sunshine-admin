@@ -82,7 +82,106 @@
       </button>
     </div>
   </form>
+
+  <div class="card bg-base-100 shadow mt-5">
+    <div class="card-body">
+      <div class="card-title">Blocked for Reservations</div>
+      <p class="text-sm text-base-content/60">
+        Temporarily prevent this kennel from being selected for new reservations during a date range,
+        without changing its permanent status. Availability returns automatically once the range ends.
+      </p>
+
+      <form action="{{ route('create-kennel-block') }}" method="POST" class="mt-3">
+        @csrf
+        <input type="hidden" name="kennel_id" value="{{ $kennel->id }}" />
+        <div class="fieldset grid grid-cols-1 gap-4 xl:grid-cols-4">
+          <div class="space-y-2">
+            <label class="fieldset-label" for="blocked_from">From*</label>
+            <label class="input w-full focus:outline-0">
+              <input class="grow focus:outline-0" id="blocked_from" name="blocked_from" type="date" required />
+            </label>
+          </div>
+          <div class="space-y-2">
+            <label class="fieldset-label" for="blocked_to">To*</label>
+            <label class="input w-full focus:outline-0">
+              <input class="grow focus:outline-0" id="blocked_to" name="blocked_to" type="date" required />
+            </label>
+          </div>
+          <div class="space-y-2 xl:col-span-2">
+            <label class="fieldset-label" for="reason">Reason</label>
+            <label class="input w-full focus:outline-0">
+              <input class="grow focus:outline-0" id="reason" name="reason" type="text" placeholder="e.g. Keep empty during Zak & Keno's stay" maxlength="255" />
+            </label>
+          </div>
+        </div>
+        <div class="mt-3 flex justify-end">
+          <button class="btn btn-sm btn-primary" type="submit">
+            <span class="iconify lucide--ban size-4"></span>
+            Block Kennel
+          </button>
+        </div>
+      </form>
+
+      <div class="mt-4 overflow-auto">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>From</th>
+              <th>To</th>
+              <th>Reason</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            @forelse ($kennelBlocks as $block)
+              <tr>
+                <td>{{ \Carbon\Carbon::parse($block->blocked_from)->format('M j, Y') }}</td>
+                <td>{{ \Carbon\Carbon::parse($block->blocked_to)->format('M j, Y') }}</td>
+                <td>{{ $block->reason ?: 'N/A' }}</td>
+                <td>
+                  <button type="button" class="btn btn-square btn-error btn-outline btn-xs border-transparent btn-delete-kennel-block" data-id="{{ $block->id }}" aria-label="Remove block">
+                    <span class="iconify lucide--trash" style="font-size: 0.875rem;"></span>
+                  </button>
+                </td>
+              </tr>
+            @empty
+              <tr>
+                <td colspan="4" class="text-center text-base-content/60">No active or upcoming blocks.</td>
+              </tr>
+            @endforelse
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
 </div>
+
+<dialog id="delete_block_modal" class="modal">
+  <div class="modal-box">
+    <div class="flex items-center justify-between text-lg font-medium">
+      Confirm Delete
+      <form method="dialog">
+        <button class="btn btn-sm btn-ghost btn-circle" aria-label="Close modal">
+          <span class="iconify lucide--x size-4"></span>
+        </button>
+      </form>
+    </div>
+    <p class="py-4">You are about to remove this block. Would you like to proceed?</p>
+    <div class="modal-action">
+      <form method="dialog">
+        <button class="btn btn-ghost">No</button>
+      </form>
+      <form id="delete_block_form" method="POST" action="{{ route('delete-kennel-block') }}">
+        @csrf
+        <input type="hidden" name="id" id="delete_kennel_block_id" value="" />
+        <button class="btn btn-error">Delete</button>
+      </form>
+    </div>
+  </div>
+  <form method="dialog" class="modal-backdrop">
+    <button>close</button>
+  </form>
+</dialog>
 @endsection
 
 @section('page-js')
@@ -91,6 +190,11 @@
 
   <script>
     FilePond.registerPlugin(FilePondPluginImagePreview);
+
+    $(document).on('click', '.btn-delete-kennel-block', function() {
+      $('#delete_kennel_block_id').val($(this).data('id'));
+      document.getElementById('delete_block_modal').showModal();
+    });
 
     const alert_modal = document.getElementById('alert_modal') || null;
     const pageAlertMessage = @json(session('status') === 'fail' ? session('message') : ($errors->any() ? $errors->first() : ''));

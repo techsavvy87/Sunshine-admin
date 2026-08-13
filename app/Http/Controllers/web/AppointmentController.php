@@ -25,6 +25,7 @@ use App\Models\Package;
 use App\Models\CustomerPackage;
 use App\Models\Notification;
 use App\Models\Kennel;
+use App\Models\KennelBlock;
 use App\Models\Room;
 use App\Services\AppointmentBookingNotifier;
 use App\Services\InvoicePaymentService;
@@ -317,6 +318,12 @@ class AppointmentController extends Controller
             ->unique()
             ->values();
 
+        $blockedKennelIds = KennelBlock::overlapping($startDateTime->toDateString(), $endDateTime->toDateString())
+            ->pluck('kennel_id')
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values();
+
         $kennels = Kennel::where(function ($query) use ($selectedKennelId) {
                 $query->where('status', 'In Service');
 
@@ -325,6 +332,7 @@ class AppointmentController extends Controller
                 }
             })
             ->whereNotIn('id', $overlappingKennelIds)
+            ->whereNotIn('id', $blockedKennelIds)
             ->orderBy('name')
             ->get(['id', 'name', 'status']);
 
@@ -1179,6 +1187,23 @@ class AppointmentController extends Controller
         $kennel = Kennel::find($kennelId);
         if (!$kennel) {
             return ['conflict' => false];
+        }
+
+        $block = $kennel->overlappingBlock($newStart->toDateString(), $newEnd->toDateString());
+        if ($block) {
+            return [
+                'conflict' => true,
+                'conflict_type' => 'kennel_blocked',
+                'blocking' => true,
+                'message' => 'Kennel <strong>"' . $kennel->name . '"</strong> is blocked for reservations from <strong>'
+                    . $block->blocked_from->format('M j') . '</strong> to <strong>' . $block->blocked_to->format('M j') . '</strong>'
+                    . ($block->reason ? ' (Reason: ' . $block->reason . ')' : '') . '. Please choose another kennel.',
+                'room_name' => $room->name,
+                'kennel_name' => $kennel->name,
+                'blocked_from' => $block->blocked_from->toDateString(),
+                'blocked_to' => $block->blocked_to->toDateString(),
+                'reason' => $block->reason,
+            ];
         }
 
         $overlappingAppointments = $this->getOverlappingBoardingAppointmentsQuery($newStart, $newEnd, $excludeAppointmentId)
@@ -2327,7 +2352,9 @@ class AppointmentController extends Controller
                     $assignmentConflict = $payloadConflict;
                 }
 
-                if (!empty($assignmentConflict['conflict']) && !$request->boolean('allow_assignment_conflict')) {
+                $isHardBlockedConflict = ($assignmentConflict['conflict_type'] ?? null) === 'kennel_blocked';
+
+                if (!empty($assignmentConflict['conflict']) && ($isHardBlockedConflict || !$request->boolean('allow_assignment_conflict'))) {
                     return back()->withErrors([
                         'room' => $assignmentConflict['message'] ?? 'The selected assignment is already in use during this time period.'
                     ])->withInput();
@@ -3036,7 +3063,9 @@ class AppointmentController extends Controller
                     $assignmentConflict = $payloadConflict;
                 }
 
-                if (!empty($assignmentConflict['conflict']) && !$request->boolean('allow_assignment_conflict')) {
+                $isHardBlockedConflict = ($assignmentConflict['conflict_type'] ?? null) === 'kennel_blocked';
+
+                if (!empty($assignmentConflict['conflict']) && ($isHardBlockedConflict || !$request->boolean('allow_assignment_conflict'))) {
                     return back()->withErrors([
                         'room' => $assignmentConflict['message'] ?? 'The selected assignment is already in use during this time period.'
                     ])->withInput();

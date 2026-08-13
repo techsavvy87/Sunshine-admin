@@ -402,6 +402,8 @@ Route::middleware(['auth'])->group(function () {
         Route::post('/kennel/delete', 'deleteKennel')->name('delete-kennel')->middleware('ensure.permission:27,can_delete');
         Route::post('/kennel/file/process', 'processFileUpload')->name('process-file-kennel');
         Route::delete('/kennel/file/revert', 'revertFileUpload')->name('revert-file-kennel');
+        Route::post('/kennel/block/create', 'createKennelBlock')->name('create-kennel-block')->middleware('ensure.permission:27,can_update');
+        Route::post('/kennel/block/delete', 'deleteKennelBlock')->name('delete-kennel-block')->middleware('ensure.permission:27,can_update');
     });
 
     Route::controller(RoomController::class)->group(function () {

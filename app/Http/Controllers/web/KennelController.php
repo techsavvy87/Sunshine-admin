@@ -9,6 +9,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use App\Models\Kennel;
+use App\Models\KennelBlock;
 use App\Models\Appointment;
 
 class KennelController extends Controller
@@ -54,6 +55,18 @@ class KennelController extends Controller
 
         $kennels = $query->paginate($perPage)->withQueryString();
         $kennelIds = $kennels->getCollection()->pluck('id')->values();
+
+        $blocksByKennel = KennelBlock::whereIn('kennel_id', $kennelIds)
+            ->overlapping($startDate->toDateString(), $endDate->toDateString())
+            ->orderBy('blocked_from')
+            ->get()
+            ->groupBy('kennel_id');
+
+        $todaysBlocksByKennel = KennelBlock::whereIn('kennel_id', $kennelIds)
+            ->overlapping(Carbon::today()->toDateString(), Carbon::today()->toDateString())
+            ->orderBy('blocked_from')
+            ->get()
+            ->groupBy('kennel_id');
 
         $collectAppointmentPets = function ($appointment) {
             $familyPets = collect($appointment->family_pets ?? [])->filter();
@@ -145,8 +158,9 @@ class KennelController extends Controller
             }
         }
 
-        $kennels->getCollection()->transform(function ($kennel) use ($boardingAppointmentsByKennel) {
+        $kennels->getCollection()->transform(function ($kennel) use ($boardingAppointmentsByKennel, $todaysBlocksByKennel) {
             $entries = $boardingAppointmentsByKennel->get($kennel->id, collect());
+            $kennel->active_block = $todaysBlocksByKennel->get($kennel->id, collect())->first();
 
             $kennel->assigned_pet_bookings = $entries->map(function ($entry) {
                 $appointment = $entry->appointment;
@@ -177,6 +191,7 @@ class KennelController extends Controller
         foreach ($kennels->getCollection() as $kennel) {
             $availabilityMatrix[$kennel->id] = [];
             $entries = $boardingAppointmentsByKennel->get($kennel->id, collect());
+            $blocksForKennel = $blocksByKennel->get($kennel->id, collect());
 
             foreach ($dateColumns as $columnDate) {
                 $dateString = $columnDate->toDateString();
@@ -185,6 +200,20 @@ class KennelController extends Controller
                     $availabilityMatrix[$kennel->id][$dateString] = [
                         'state' => 'out_of_service',
                         'text' => 'Out of Service',
+                    ];
+                    continue;
+                }
+
+                $blockForDay = $blocksForKennel->first(function ($block) use ($dateString) {
+                    return $block->blocked_from->toDateString() <= $dateString
+                        && $block->blocked_to->toDateString() >= $dateString;
+                });
+
+                if ($blockForDay) {
+                    $availabilityMatrix[$kennel->id][$dateString] = [
+                        'state' => 'blocked',
+                        'text' => 'Blocked',
+                        'reason' => $blockForDay->reason,
                     ];
                     continue;
                 }
@@ -349,7 +378,7 @@ class KennelController extends Controller
                 $cell = $availabilityMatrix[$kennel->id][$dateString] ?? ['state' => 'empty'];
                 $state = $cell['state'] ?? 'empty';
 
-                if ($state === 'out_of_service') {
+                if ($state === 'out_of_service' || $state === 'blocked') {
                     continue;
                 }
 
@@ -405,8 +434,12 @@ class KennelController extends Controller
     public function editKennel($id)
     {
         $kennel = Kennel::findOrFail($id);
+        $kennelBlocks = KennelBlock::where('kennel_id', $kennel->id)
+            ->whereDate('blocked_to', '>=', Carbon::today()->toDateString())
+            ->orderBy('blocked_from')
+            ->get();
 
-        return view('kennels.update', compact('kennel'));
+        return view('kennels.update', compact('kennel', 'kennelBlocks'));
     }
 
     public function processFileUpload(Request $request)
@@ -611,6 +644,42 @@ class KennelController extends Controller
         return redirect()->route('kennels')->with([
             'status' => 'success',
             'message' => 'Kennel deleted successfully!'
+        ]);
+    }
+
+    public function createKennelBlock(Request $request)
+    {
+        $request->validate([
+            'kennel_id' => 'required|exists:kennels,id',
+            'blocked_from' => 'required|date',
+            'blocked_to' => 'required|date|after_or_equal:blocked_from',
+            'reason' => 'nullable|string|max:255',
+        ]);
+
+        KennelBlock::create([
+            'kennel_id' => $request->kennel_id,
+            'blocked_from' => Carbon::parse($request->blocked_from)->toDateString(),
+            'blocked_to' => Carbon::parse($request->blocked_to)->toDateString(),
+            'reason' => $request->reason,
+        ]);
+
+        return redirect()->back()->with([
+            'status' => 'success',
+            'message' => 'Kennel blocked for the selected dates.'
+        ]);
+    }
+
+    public function deleteKennelBlock(Request $request)
+    {
+        $request->validate([
+            'id' => 'required|exists:kennel_blocks,id',
+        ]);
+
+        KennelBlock::findOrFail($request->id)->delete();
+
+        return redirect()->back()->with([
+            'status' => 'success',
+            'message' => 'Kennel block removed.'
         ]);
     }
 }

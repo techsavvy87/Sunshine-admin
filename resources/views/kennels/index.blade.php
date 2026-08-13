@@ -48,6 +48,7 @@
           <span class="inline-flex items-center gap-1.5 text-xs text-base-content/70"><span class="inline-block shrink-0" style="width:0.65rem;height:0.65rem;border-radius:2px;background:#8b5cf6;"></span>Turnover</span>
           <span class="inline-flex items-center gap-1.5 text-xs text-base-content/70"><span class="inline-block shrink-0" style="width:0.65rem;height:0.65rem;border-radius:2px;background:#cbd5e1;"></span>Empty</span>
           <span class="inline-flex items-center gap-1.5 text-xs text-base-content/70"><span class="inline-block shrink-0" style="width:0.65rem;height:0.65rem;border-radius:2px;background:#b91c1c;"></span>Out of Service</span>
+          <span class="inline-flex items-center gap-1.5 text-xs text-base-content/70"><span class="inline-block shrink-0" style="width:0.65rem;height:0.65rem;border-radius:2px;background:#78716c;"></span>Blocked</span>
         </div>
         <form method="GET" action="{{ route('kennels') }}" class="flex items-center gap-2">
           <input type="hidden" name="view" value="calendar">
@@ -116,12 +117,13 @@
                       'turnover' => '#8b5cf6',
                       'empty' => '#cbd5e1',
                       'out_of_service' => '#b91c1c',
+                      'blocked' => '#78716c',
                       default => '',
                     };
                     $textClass = $cell['state'] === 'out_of_service' ? 'text-base-content' : 'text-base-content';
                   @endphp
                   <td>
-                    <div class="min-w-36 text-sm {{ $textClass }}">
+                    <div class="min-w-36 text-sm {{ $textClass }}" @if($cell['state'] === 'blocked' && !empty($cell['reason'])) title="Reason: {{ $cell['reason'] }}" @endif>
                       <div class="flex items-center gap-1.5 flex-wrap">
                         @if($markerColor)
                           <span class="inline-block shrink-0" style="width: 0.7rem; height: 0.7rem; border-radius: 2px; background-color: {{ $markerColor }};"></span>
@@ -133,6 +135,9 @@
                         @endif
                         @if($cell['state'] !== 'empty')
                           <span>{{ $cell['text'] }}</span>
+                        @endif
+                        @if($cell['state'] === 'blocked' && !empty($cell['reason']))
+                          <span class="block basis-full text-xs text-base-content/60">Reason: {{ $cell['reason'] }}</span>
                         @endif
                       </div>
                     </div>
@@ -241,6 +246,14 @@
                   };
                 @endphp
                 <span class="badge badge-soft badge-sm {{ $statusClass }}">{{ $kennel->status }}</span>
+                @if (!empty($kennel->active_block))
+                  <div class="mt-1">
+                    <span class="badge badge-soft badge-sm badge-neutral" title="Reason: {{ $kennel->active_block->reason ?? 'N/A' }}">
+                      <span class="iconify lucide--ban size-3"></span>
+                      Blocked until {{ \Carbon\Carbon::parse($kennel->active_block->blocked_to)->format('M j') }}
+                    </span>
+                  </div>
+                @endif
               </td>
               <td>
                 <div class="inline-flex w-fit gap-1">
