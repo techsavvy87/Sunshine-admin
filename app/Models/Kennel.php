@@ -11,6 +11,7 @@ class Kennel extends Model
         'name',
         'description',
         'type',
+        'kennel_type',
         'capacity',
         'status',
     ];

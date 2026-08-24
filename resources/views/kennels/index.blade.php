@@ -182,6 +182,7 @@
               <th>No</th>
               <th>Image</th>
               <th>Name</th>
+              <th>Kennel Type</th>
               <th>Assigned Pet</th>
               <th>Max Pets</th>
               <th>Status</th>
@@ -202,6 +203,11 @@
                 </div>
               </td>
               <td>{{ $kennel->name }}</td>
+              @php
+                $kennelType = $kennel->kennel_type ?? 'Canine';
+                $kennelTypeClass = $kennelType === 'Feline' ? 'badge-secondary' : 'badge-info';
+              @endphp
+              <td><span class="badge badge-soft badge-sm {{ $kennelTypeClass }}">{{ $kennelType }}</span></td>
               <td>
                 @if (isset($kennel->assigned_pet_bookings) && $kennel->assigned_pet_bookings->isNotEmpty())
                   <div class="flex flex-col gap-2">
