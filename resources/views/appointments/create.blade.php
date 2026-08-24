@@ -147,7 +147,7 @@
             <select class="select w-full" name="kennel" id="kennel">
               <option value="" hidden selected>Choose a kennel</option>
               @foreach($kennels as $kennel)
-                <option value="{{ $kennel->id }}">{{ $kennel->name }}</option>
+                <option value="{{ $kennel->id }}" data-kennel-type="{{ $kennel->kennel_type ?? 'Canine' }}">{{ $kennel->name }} ({{ $kennel->kennel_type ?? 'Canine' }})</option>
               @endforeach
             </select>
           </div>

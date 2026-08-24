@@ -304,12 +304,15 @@ class AppointmentController extends Controller
             'boarding_end_datetime' => 'required|date|after:boarding_start_datetime',
             'appointment_id' => 'nullable|exists:appointments,id',
             'selected_kennel_id' => 'nullable|exists:kennels,id',
+            'pet_ids' => 'nullable|array',
+            'pet_ids.*' => 'exists:pet_profiles,id',
         ]);
 
         $startDateTime = Carbon::parse($request->boarding_start_datetime);
         $endDateTime = Carbon::parse($request->boarding_end_datetime);
         $excludeAppointmentId = $request->filled('appointment_id') ? (int) $request->appointment_id : null;
         $selectedKennelId = $request->filled('selected_kennel_id') ? (int) $request->selected_kennel_id : null;
+        $petIds = collect($request->input('pet_ids', []))->map(fn ($id) => (int) $id)->filter()->values()->all();
 
         $overlappingKennelIds = $this->getOverlappingBoardingAppointmentsQuery($startDateTime, $endDateTime, $excludeAppointmentId)
             ->whereNotNull('kennel_id')
@@ -334,7 +337,11 @@ class AppointmentController extends Controller
             ->whereNotIn('id', $overlappingKennelIds)
             ->whereNotIn('id', $blockedKennelIds)
             ->orderBy('name')
-            ->get(['id', 'name', 'status']);
+            ->get(['id', 'name', 'status', 'kennel_type'])
+            ->filter(function ($kennel) use ($petIds) {
+                return empty($petIds) || $this->validateKennelPetTypes([(int) $kennel->id => $petIds])['valid'];
+            })
+            ->values();
 
         return response()->json($kennels);
     }
@@ -775,13 +782,12 @@ class AppointmentController extends Controller
                     ];
                 }
 
-                $pet = $petsById->get($petId);
-                $petType = strtolower((string) ($pet['type'] ?? 'dog'));
-                if ($petType === 'cat') {
+                $kennelTypeValidation = $this->validateKennelPetTypes([$kennelId => [$petId]]);
+                if (!$kennelTypeValidation['valid']) {
                     return [
                         'conflict' => true,
-                        'conflict_type' => 'cat_kennel',
-                        'message' => 'Kennels are for dogs only. Cats cannot be assigned to kennels. Please use a cat room instead.',
+                        'conflict_type' => 'kennel_type',
+                        'message' => $kennelTypeValidation['message'],
                         'room_name' => $room->name,
                     ];
                 }
@@ -960,41 +966,13 @@ class AppointmentController extends Controller
             $request->input('family_kennel_assignments', [])
         );
 
-        // Kennels are dogs-only: block cats from being assigned to a kennel
-        if ($roomType === 'standard' && !empty($petIds)) {
-            $cats = PetProfile::whereIn('id', $petIds)
-                ->whereRaw('LOWER(type) = ?', ['cat'])
-                ->get();
-
-            if ($cats->isNotEmpty()) {
-                $assignedKennelId = $this->getAssignmentKennelIdForMode($familyKennelMode, $kennelId, $familyKennelAssignments);
-                $kennel = $assignedKennelId ? Kennel::find($assignedKennelId) : null;
-                $kennelName = $kennel ? $kennel->name : 'the selected kennel';
-
-                $catNames = $cats->pluck('name')->map(fn ($n) => "<strong>{$n}</strong>")->implode(', ');
-                $plural = $cats->count() > 1;
-
-                $catRooms = Room::get()
-                    ->filter(fn ($r) => in_array('cat', $r->pet_type_label_array))
-                    ->pluck('name')
-                    ->values();
-
-                $catRoomSuggestion = $catRooms->isNotEmpty()
-                    ? 'Please use one of these cat rooms instead: <strong>' . $catRooms->implode('</strong>, <strong>') . '</strong>.'
-                    : 'Please choose a cat room instead.';
-
-                $verb = $plural ? 'are cats' : 'is a cat';
-
-                return response()->json([
-                    'conflict' => true,
-                    'conflict_type' => 'cat_kennel',
-                    'valid' => false,
-                    'room_type' => $roomType,
-                    'room_id' => $room->id,
-                    'room_name' => $room->name,
-                    'message' => "Kennels are for dogs only. {$catNames} {$verb} and cannot stay in kennel <strong>\"{$kennelName}\"</strong>.<br><br>{$catRoomSuggestion}",
-                ]);
-            }
+        $kennelTypeValidation = $this->validateKennelPetTypes(
+            $familyKennelMode === 'individual'
+                ? collect($familyKennelAssignments)->groupBy(fn ($kennelId) => (int) $kennelId)->map(fn ($assignments) => collect($assignments)->keys()->map(fn ($petId) => (int) $petId)->all())->all()
+                : ($kennelId ? [$kennelId => $petIds] : [])
+        );
+        if (!$kennelTypeValidation['valid']) {
+            return response()->json(['conflict' => true, 'conflict_type' => 'kennel_type', 'valid' => false, 'message' => $kennelTypeValidation['message']]);
         }
 
         if ($roomType !== 'standard') {
@@ -1115,26 +1093,37 @@ class AppointmentController extends Controller
         return ['valid' => true];
     }
 
-    private function validateCatToKennelAssignment(?int $kennelId, array $petIds): array
+    private function validateKennelPetTypes(array $assignments): array
     {
-        if (!$kennelId || empty($petIds)) {
+        $normalizedAssignments = collect($assignments)->mapWithKeys(function ($petIds, $kennelId) {
+            return [(int) $kennelId => collect($petIds)->map(fn ($petId) => (int) $petId)->filter()->values()->all()];
+        })->filter(fn ($petIds, $kennelId) => $kennelId > 0 && !empty($petIds));
+
+        if ($normalizedAssignments->isEmpty()) {
             return ['valid' => true];
         }
 
-        // Check if any selected pets are cats
-        $cats = PetProfile::whereIn('id', $petIds)
-            ->whereRaw('LOWER(type) = ?', ['cat'])
-            ->get();
+        $petsById = PetProfile::whereIn('id', $normalizedAssignments->flatten()->unique())->get()->keyBy('id');
+        $kennelsById = Kennel::whereIn('id', $normalizedAssignments->keys())->get()->keyBy('id');
 
-        if ($cats->isEmpty()) {
-            return ['valid' => true];
+        foreach ($normalizedAssignments as $kennelId => $petIds) {
+            $kennel = $kennelsById->get($kennelId);
+            foreach ($petIds as $petId) {
+                $pet = $petsById->get($petId);
+                $requiredType = strtolower((string) ($pet->type ?? 'dog')) === 'cat' ? 'feline' : 'canine';
+                $kennelType = strtolower((string) ($kennel->kennel_type ?? 'Canine'));
+
+                if ($kennel && $requiredType !== $kennelType) {
+                    return [
+                        'valid' => false,
+                        'message' => ($pet->name ?? 'This pet') . ' cannot be assigned to ' . $kennel->name
+                            . '. Pets of this type require a ' . ucfirst($requiredType) . ' kennel.',
+                    ];
+                }
+            }
         }
 
-        // Cats cannot be assigned to kennels
-        return [
-            'valid' => false,
-            'message' => 'Kennels are for dogs only. Cats cannot be assigned to kennels. Please use a cat room instead.',
-        ];
+        return ['valid' => true];
     }
 
     private function getAssignmentRooms()
@@ -1187,6 +1176,18 @@ class AppointmentController extends Controller
         $kennel = Kennel::find($kennelId);
         if (!$kennel) {
             return ['conflict' => false];
+        }
+
+        $kennelTypeValidation = $this->validateKennelPetTypes([$kennelId => $selectedPetIds]);
+        if (!$kennelTypeValidation['valid']) {
+            return [
+                'conflict' => true,
+                'conflict_type' => 'kennel_type',
+                'blocking' => true,
+                'message' => $kennelTypeValidation['message'],
+                'room_name' => $room->name,
+                'kennel_name' => $kennel->name,
+            ];
         }
 
         $block = $kennel->overlappingBlock($newStart->toDateString(), $newEnd->toDateString());
@@ -2202,6 +2203,14 @@ class AppointmentController extends Controller
             $request->input('family_pet_assignments', []),
             $petIds
         );
+        $kennelTypeValidation = $this->validateKennelPetTypes(
+            $familyKennelMode === 'individual'
+                ? collect($familyPetAssignments)->groupBy(fn ($assignment) => (int) ($assignment['kennel_id'] ?? 0))->map(fn ($assignments) => collect($assignments)->keys()->map(fn ($petId) => (int) $petId)->all())->all()
+                : ($assignedKennelId ? [$assignedKennelId => $petIds] : [])
+        );
+        if (!$kennelTypeValidation['valid']) {
+            return back()->withErrors(['kennel' => $kennelTypeValidation['message']])->withInput();
+        }
         $assignmentConflict = null;
 
         if (isBoardingService($service) && !$isWaitListed) {
@@ -2303,18 +2312,6 @@ class AppointmentController extends Controller
                 if (!in_array($assignedKennelId, $selectedRoom->kennel_id_array, true)) {
                     return back()->withErrors([
                         'kennel' => 'The selected kennel does not belong to the selected room.'
-                    ])->withInput();
-                }
-            }
-
-            if ($familyKennelMode !== 'individual' && $roomType === 'standard') {
-                $cats = PetProfile::whereIn('id', $petIds)
-                    ->whereRaw('LOWER(type) = ?', ['cat'])
-                    ->get();
-
-                if ($cats->isNotEmpty()) {
-                    return back()->withErrors([
-                        'kennel' => 'Kennels are for dogs only. Cats cannot be assigned to kennels. Please use a cat room instead.'
                     ])->withInput();
                 }
             }
@@ -2913,6 +2910,14 @@ class AppointmentController extends Controller
             $request->input('family_pet_assignments', []),
             $petIds
         );
+        $kennelTypeValidation = $this->validateKennelPetTypes(
+            $familyKennelMode === 'individual'
+                ? collect($familyPetAssignments)->groupBy(fn ($assignment) => (int) ($assignment['kennel_id'] ?? 0))->map(fn ($assignments) => collect($assignments)->keys()->map(fn ($petId) => (int) $petId)->all())->all()
+                : ($selectedKennelId ? [$selectedKennelId => $petIds] : [])
+        );
+        if (!$kennelTypeValidation['valid']) {
+            return back()->withErrors(['kennel' => $kennelTypeValidation['message']])->withInput();
+        }
         $assignmentConflict = null;
 
         if (isBoardingService($service) && !$isWaitListed) {
@@ -3014,18 +3019,6 @@ class AppointmentController extends Controller
                 if (!in_array($selectedKennelId, $selectedRoom->kennel_id_array, true)) {
                     return back()->withErrors([
                         'kennel' => 'The selected kennel does not belong to the selected room.'
-                    ])->withInput();
-                }
-            }
-
-            if ($familyKennelMode !== 'individual' && $roomType === 'standard') {
-                $cats = PetProfile::whereIn('id', $petIds)
-                    ->whereRaw('LOWER(type) = ?', ['cat'])
-                    ->get();
-
-                if ($cats->isNotEmpty()) {
-                    return back()->withErrors([
-                        'kennel' => 'Kennels are for dogs only. Cats cannot be assigned to kennels. Please use a cat room instead.'
                     ])->withInput();
                 }
             }
@@ -3704,6 +3697,13 @@ class AppointmentController extends Controller
             collect(array_keys($roomAssignments))->sort()->values()->all() !== $allowedPetIds->sort()->values()->all()
         ) {
             return response()->json(['success' => false, 'message' => 'A room assignment is required for every pet.'], 422);
+        }
+
+        $kennelTypeValidation = $this->validateKennelPetTypes(
+            collect($roomAssignments)->groupBy(fn ($assignment) => (int) ($assignment['kennel_id'] ?? 0))->map(fn ($assignments) => collect($assignments)->keys()->map(fn ($petId) => (int) $petId)->all())->all()
+        );
+        if (!$kennelTypeValidation['valid']) {
+            return response()->json(['success' => false, 'message' => $kennelTypeValidation['message']], 422);
         }
 
         $startDateTime = Carbon::parse($appointment->date . ' ' . ($appointment->start_time ?: '00:00:00'));
