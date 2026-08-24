@@ -2510,7 +2510,7 @@
                                     {{ $currentPetRoomId !== (int) $room->id ? 'hidden disabled' : '' }}
                                     {{ $currentPetKennelId === (int) $kennel->id ? 'selected' : '' }}
                                   >
-                                    {{ $kennel->name }}
+                                    {{ $kennel->name }} ({{ $kennel->kennel_type ?? 'Canine' }})
                                   </option>
                                 @endforeach
                               @endforeach

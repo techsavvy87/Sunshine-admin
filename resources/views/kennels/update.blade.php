@@ -40,7 +40,7 @@
         <div class="card bg-base-100 shadow">
           <div class="card-body">
             <div class="card-title">Basic Information</div>
-            <div class="fieldset mt-2 grid grid-cols-1 gap-4 xl:grid-cols-3">
+            <div class="fieldset mt-2 grid grid-cols-1 gap-4 xl:grid-cols-4">
               <div class="space-y-2">
                 <label class="fieldset-label" for="name">Kennel Name*</label>
                 <label class="input w-full focus:outline-0">
@@ -54,6 +54,13 @@
                 </label>
               </div>
               <div class="space-y-2">
+                <label class="fieldset-label" for="kennel_type">Kennel Type*</label>
+                <select class="select w-full" name="kennel_type" id="kennel_type">
+                  <option value="Canine" {{ old('kennel_type', $kennel->kennel_type ?? 'Canine') === 'Canine' ? 'selected' : '' }}>Canine</option>
+                  <option value="Feline" {{ old('kennel_type', $kennel->kennel_type ?? 'Canine') === 'Feline' ? 'selected' : '' }}>Feline</option>
+                </select>
+              </div>
+              <div class="space-y-2">
                 <label class="fieldset-label" for="status">Status*</label>
                 <select class="select w-full" name="status" id="status">
                   <option value="In Service" {{ old('status', $kennel->status) === 'In Service' ? 'selected' : '' }}>In Service</option>
@@ -61,7 +68,7 @@
                   <option value="Cleaning" {{ old('status', $kennel->status) === 'Cleaning' ? 'selected' : '' }}>Cleaning</option>
                 </select>
               </div>
-              <div class="space-y-2 xl:col-span-3">
+              <div class="space-y-2 xl:col-span-4">
                 <label class="fieldset-label" for="description">Description</label>
                 <textarea class="textarea w-full min-h-24" placeholder="Description" name="description" id="description">{{ old('description', $kennel->description) }}</textarea>
               </div>

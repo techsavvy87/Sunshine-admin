@@ -486,6 +486,7 @@ class KennelController extends Controller
         $request->validate([
             'name' => 'required|string|max:255',
             'description' => 'nullable|string|max:255',
+            'kennel_type' => 'required|in:Canine,Feline',
             'capacity' => 'required|integer|min:1',
             'status' => 'required|in:In Service,Out of Service,Cleaning',
             'temp_file' => 'nullable|string',
@@ -503,6 +504,7 @@ class KennelController extends Controller
         $kennel = new Kennel();
         $kennel->name = $normalizedName;
         $kennel->description = $request->description;
+        $kennel->kennel_type = $request->kennel_type;
         $kennel->capacity = (int) $request->capacity;
         $kennel->status = $request->status;
 
@@ -537,6 +539,7 @@ class KennelController extends Controller
             'id' => 'required|exists:kennels,id',
             'name' => 'required|string|max:255',
             'description' => 'nullable|string|max:255',
+            'kennel_type' => 'required|in:Canine,Feline',
             'capacity' => 'required|integer|min:1',
             'status' => 'required|in:In Service,Out of Service,Cleaning',
             'img_action' => 'required|in:keep,change,delete',
@@ -581,6 +584,7 @@ class KennelController extends Controller
 
         $kennel->name = $normalizedName;
         $kennel->description = $request->description;
+        $kennel->kennel_type = $request->kennel_type;
         $kennel->capacity = (int) $request->capacity;
         $kennel->status = $request->status;
 

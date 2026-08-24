@@ -79,10 +79,12 @@
                   @foreach ($room->kennel_pet_assignments as $assignment)
                   @php
                     $hasConflict = isset($assignment->appointments) && $assignment->appointments->contains(fn($apt) => isAssignmentConflict($apt));
+                    $kennelType = $assignment->kennel->kennel_type ?? 'Canine';
+                    $kennelTypeClass = $kennelType === 'Feline' ? 'badge-secondary' : 'badge-info';
                   @endphp
                   <div class="flex items-center gap-4 rounded-box {{ $hasConflict ? 'assignment-conflict-bg border-l-4 border-yellow-500' : 'bg-base-200/40' }} px-2 py-1.5">
                     <div class="flex items-center gap-2">
-                      <span class="badge badge-soft badge-sm badge-neutral shrink-0">{{ $assignment->kennel->name }}</span>
+                      <span class="badge badge-soft badge-sm {{ $kennelTypeClass }} shrink-0">{{ $assignment->kennel->name }} ({{ $kennelType }})</span>
                       @if ($hasConflict)
                         <span class="badge badge-warning badge-sm">
                           <span class="iconify lucide--alert-circle size-3"></span>

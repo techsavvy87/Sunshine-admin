@@ -17,6 +17,7 @@ return new class extends Migration
             $table->string('name');
             $table->string('description')->nullable();
             $table->integer('capacity');
+            $table->enum('kennel_type', ['Canine','Feline'])->default('Canine');
             $table->enum('status', ['In Service', 'Out of Service', 'Cleaning'])->default('In Service');
             $table->timestamps();
         });
