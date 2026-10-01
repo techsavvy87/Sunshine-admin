@@ -223,6 +223,9 @@ class UserController extends Controller
         $profile->city = $request->city;
         $profile->state = $request->state;
         $profile->zip_code = $request->zip_code;
+        $profile->emergency_contact_info = $request->emergency_contact_info;
+        $profile->home_number = $request->home_number;
+        $profile->work_number = $request->work_number;
 
         // Handle avatar based on action
         switch ($request->avatar_action) {

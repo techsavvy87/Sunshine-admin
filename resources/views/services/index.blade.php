@@ -92,7 +92,7 @@
               </td>
               <td>{{ $service->name }}</td>
               <td>
-                @if($service->price_small || $service->price_medium || $service->price_large || $service->price_xlarge)
+                @if(isGroomingService($service) && ($service->price_small || $service->price_medium || $service->price_large || $service->price_xlarge))
                   —
                 @else
                   @if($service->price)
@@ -103,7 +103,7 @@
                 @endif
               </td>
               <td>
-                @if($service->duration_small || $service->duration_medium || $service->duration_large || $service->duration_xlarge)
+                @if(isGroomingService($service) && ($service->duration_small || $service->duration_medium || $service->duration_large || $service->duration_xlarge))
                   —
                 @else
                   @if($service->duration)

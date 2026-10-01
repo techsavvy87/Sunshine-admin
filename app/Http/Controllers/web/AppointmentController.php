@@ -2118,6 +2118,9 @@ class AppointmentController extends Controller
     public function create(Request $request, AppointmentBookingNotifier $bookingNotifier)
     {
         $request->validate([
+            'appointment_notes' => 'nullable|string',
+            'boarding_start_datetime' => 'nullable|date',
+            'boarding_end_datetime' => 'nullable|date',
             'customer' => 'required|exists:users,id',
             'pet' => 'required|array|min:1',
             'pet.*' => 'exists:pet_profiles,id',
@@ -2613,8 +2616,8 @@ class AppointmentController extends Controller
 
             if (isBoardingService($service)) {
                 $dropOffMinutes = ((int) $startDateTime->format('H') * 60) + (int) $startDateTime->format('i');
-                $businessStartMinutes = 9 * 60;
-                $businessEndMinutes = 16 * 60;
+                $businessStartMinutes = (7 * 60) + 30;
+                $businessEndMinutes = (17 * 60) + 30;
                 $isEarlyDropOff = $dropOffMinutes < $businessStartMinutes;
                 $isLateDropOff = $dropOffMinutes > $businessEndMinutes;
                 $canCreateEarlyDropOff = Auth::user()
@@ -2623,9 +2626,16 @@ class AppointmentController extends Controller
 
                 if (($isEarlyDropOff && !$canCreateEarlyDropOff) || $isLateDropOff) {
                     return back()->withErrors([
-                        'boarding_start_datetime' => 'Drop-off time must be between 9:00 AM and 4:00 PM.'
+                        'boarding_start_datetime' => 'Drop-off time must be between 7:30 AM and 5:30 PM.'
                     ])->withInput();
                 }
+            }
+
+            $pickupMinutes = ((int) $endDateTime->format('H') * 60) + (int) $endDateTime->format('i');
+            if ($pickupMinutes < (7 * 60) + 30 || $pickupMinutes > (17 * 60) + 30) {
+                return back()->withErrors([
+                    'boarding_end_datetime' => 'Pick-up time must be between 7:30 AM and 5:30 PM.'
+                ])->withInput();
             }
 
             if ($requiresAdditionalServiceTimeSlot) {
@@ -2666,6 +2676,10 @@ class AppointmentController extends Controller
         $appointment->additional_service_ids = !empty($selectedAdditionalServiceIds)
             ? implode(',', $selectedAdditionalServiceIds)
             : null;
+        if ($request->has('appointment_notes')) {
+            $metadata['appointment_notes'] = $request->input('appointment_notes');
+        }
+
         $appointment->metadata = !empty($metadata) ? $metadata : null;
         $appointment->save();
 
@@ -2854,6 +2868,9 @@ class AppointmentController extends Controller
     public function update(Request $request, AppointmentBookingNotifier $bookingNotifier)
     {
         $request->validate([
+            'appointment_notes' => 'nullable|string',
+            'boarding_start_datetime' => 'nullable|date',
+            'boarding_end_datetime' => 'nullable|date',
             'appointment_id' => 'required|exists:appointments,id',
             'customer' => 'required|exists:users,id',
             'pet' => 'required|array|min:1',
@@ -3306,8 +3323,8 @@ class AppointmentController extends Controller
             $endDateTime = Carbon::parse($request->boarding_end_datetime);
 
             $dropOffMinutes = ((int) $startDateTime->format('H') * 60) + (int) $startDateTime->format('i');
-            $businessStartMinutes = 9 * 60;
-            $businessEndMinutes = 16 * 60;
+            $businessStartMinutes = (7 * 60) + 30;
+            $businessEndMinutes = (17 * 60) + 30;
             $isEarlyDropOff = $dropOffMinutes < $businessStartMinutes;
             $isLateDropOff = $dropOffMinutes > $businessEndMinutes;
             $canCreateEarlyDropOff = Auth::user()
@@ -3316,7 +3333,14 @@ class AppointmentController extends Controller
 
             if (($isEarlyDropOff && !$canCreateEarlyDropOff) || $isLateDropOff) {
                 return back()->withErrors([
-                    'boarding_start_datetime' => 'Drop-off time must be between 9:00 AM and 4:00 PM.'
+                    'boarding_start_datetime' => 'Drop-off time must be between 7:30 AM and 5:30 PM.'
+                ])->withInput();
+            }
+
+            $pickupMinutes = ((int) $endDateTime->format('H') * 60) + (int) $endDateTime->format('i');
+            if ($pickupMinutes < (7 * 60) + 30 || $pickupMinutes > (17 * 60) + 30) {
+                return back()->withErrors([
+                    'boarding_end_datetime' => 'Pick-up time must be between 7:30 AM and 5:30 PM.'
                 ])->withInput();
             }
 
@@ -3360,6 +3384,10 @@ class AppointmentController extends Controller
                 $additionalServicesByPet,
                 (int) $request->customer
             );
+        }
+
+        if ($request->has('appointment_notes')) {
+            $metadata['appointment_notes'] = $request->input('appointment_notes');
         }
 
         $appointment->metadata = !empty($metadata) ? $metadata : null;

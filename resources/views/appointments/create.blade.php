@@ -122,10 +122,12 @@
           
           <div class="space-y-2" id="boarding_start_group">
             <label class="fieldset-label">Drop Off Date/Time*</label>
+            <p class="text-xs opacity-70">Business hours: 7:30 AM &ndash; 5:30 PM</p>
             <input type="datetime-local" class="input w-full" id="boarding_start_datetime" name="boarding_start_datetime" format="YYYY-MM-DD HH:mm" placeholder="Select drop off date/time" />
           </div>
           <div class="space-y-2" id="boarding_end_group">
             <label class="fieldset-label">Pick Up Date/Time*</label>
+            <p class="text-xs opacity-70">Business hours: 7:30 AM &ndash; 5:30 PM</p>
             <input type="datetime-local" class="input w-full" id="boarding_end_datetime" name="boarding_end_datetime" format="YYYY-MM-DD HH:mm" placeholder="Select drop off date/time" />
           </div>
           <div class="space-y-2" id="room_group">
@@ -183,6 +185,10 @@
             <select class="select w-full" name="staff" id="staff">
               <option value="" hidden selected>Choose a staff</option>
             </select>
+          </div>
+          <div class="space-y-2 xl:col-span-4">
+            <label class="fieldset-label" for="appointment_notes">Appointment Notes</label>
+            <textarea class="textarea w-full" id="appointment_notes" name="appointment_notes" rows="3">{{ old('appointment_notes') }}</textarea>
           </div>
           <div class="space-y-2 xl:col-span-4" id="wait_listed_group">
             <label class="label cursor-pointer justify-start gap-3 px-0">
@@ -1495,8 +1501,8 @@
         return false;
       }
 
-      const businessStart = 9 * 60;
-      const businessEnd = 16 * 60;
+      const businessStart = (7 * 60) + 30;
+      const businessEnd = (17 * 60) + 30;
 
       return totalMinutes >= businessStart && totalMinutes <= businessEnd;
     }
@@ -1615,20 +1621,20 @@
         }
 
         const boardingStartMinutes = getTotalMinutesFromDateTimeValue(boardingStart);
-        const isEarlyDropOff = boardingStartMinutes !== null && boardingStartMinutes < (9 * 60);
-        const isLateDropOff = boardingStartMinutes !== null && boardingStartMinutes > (16 * 60);
+        const isEarlyDropOff = boardingStartMinutes !== null && boardingStartMinutes < ((7 * 60) + 30);
+        const isLateDropOff = boardingStartMinutes !== null && boardingStartMinutes > ((17 * 60) + 30);
         if (
           boardingStartMinutes === null
           || (isEarlyDropOff && !canCreateEarlyBoardingDropoff)
           || isLateDropOff
         ) {
-          $('#alert_message').text('Drop-off time must be between 9:00 AM and 4:00 PM.');
+          $('#alert_message').text('Drop-off time must be between 7:30 AM and 5:30 PM.');
           alert_modal.showModal();
           return;
         }
 
         if (!isWithinBusinessHours(boardingEnd)) {
-          $('#alert_message').text('Pick-up time must be between 9:00 AM and 4:00 PM.');
+          $('#alert_message').text('Pick-up time must be between 7:30 AM and 5:30 PM.');
           alert_modal.showModal();
           return;
         }

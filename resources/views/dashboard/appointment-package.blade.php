@@ -161,6 +161,19 @@
           </div>
         </div>
       </div>
+      @if (filled($appointment->metadata['appointment_notes'] ?? null))
+      <div class="card card-border bg-base-100 mt-3">
+        <div class="card-body gap-0">
+          <div class="bg-base-200 rounded-box collapse collapse-arrow">
+            <input aria-label="Toggle appointment notes" type="checkbox" checked="" name="accordion-multiple" />
+            <div class="collapse-title font-medium py-1">Appointment Notes</div>
+            <div class="collapse-content bg-base-100">
+              <p class="mt-4 text-sm whitespace-pre-wrap break-words text-base-content/70">{{ $appointment->metadata['appointment_notes'] }}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+      @endif
     </div>
     <div class="lg:col-span-7 2xl:col-span-7">
       {{-- Pet Profile --}}
