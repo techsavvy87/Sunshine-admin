@@ -2614,27 +2614,34 @@ class AppointmentController extends Controller
             $startDateTime = Carbon::parse($request->boarding_start_datetime);
             $endDateTime = Carbon::parse($request->boarding_end_datetime);
 
+            $isDropOffInvalid = false;
             if (isBoardingService($service)) {
                 $dropOffMinutes = ((int) $startDateTime->format('H') * 60) + (int) $startDateTime->format('i');
                 $businessStartMinutes = (7 * 60) + 30;
                 $businessEndMinutes = (17 * 60) + 30;
                 $isEarlyDropOff = $dropOffMinutes < $businessStartMinutes;
                 $isLateDropOff = $dropOffMinutes > $businessEndMinutes;
-                $canCreateEarlyDropOff = Auth::user()
-                    ? Auth::user()->roles()->whereRaw('LOWER(title) = ?', ['owner'])->exists()
-                    : false;
 
-                if (($isEarlyDropOff && !$canCreateEarlyDropOff) || $isLateDropOff) {
-                    return back()->withErrors([
-                        'boarding_start_datetime' => 'Drop-off time must be between 7:30 AM and 5:30 PM.'
-                    ])->withInput();
-                }
+                $isDropOffInvalid = $isEarlyDropOff || $isLateDropOff;
             }
 
             $pickupMinutes = ((int) $endDateTime->format('H') * 60) + (int) $endDateTime->format('i');
-            if ($pickupMinutes < (7 * 60) + 30 || $pickupMinutes > (17 * 60) + 30) {
+            $isPickUpInvalid = $pickupMinutes < (7 * 60) + 30 || $pickupMinutes > (17 * 60) + 30;
+
+            if ($isDropOffInvalid && $isPickUpInvalid) {
                 return back()->withErrors([
-                    'boarding_end_datetime' => 'Pick-up time must be between 7:30 AM and 5:30 PM.'
+                    'boarding_start_datetime' => 'Drop off and Pick up must be between 7:30 AM and 5:30 PM.',
+                    'boarding_end_datetime' => 'Drop off and Pick up must be between 7:30 AM and 5:30 PM.',
+                ])->withInput();
+            }
+            if ($isPickUpInvalid) {
+                return back()->withErrors([
+                    'boarding_end_datetime' => 'Pick up must be before 5:30 PM.'
+                ])->withInput();
+            }
+            if ($isDropOffInvalid) {
+                return back()->withErrors([
+                    'boarding_start_datetime' => 'Drop off must be after 7:30 AM.'
                 ])->withInput();
             }
 
@@ -3327,20 +3334,25 @@ class AppointmentController extends Controller
             $businessEndMinutes = (17 * 60) + 30;
             $isEarlyDropOff = $dropOffMinutes < $businessStartMinutes;
             $isLateDropOff = $dropOffMinutes > $businessEndMinutes;
-            $canCreateEarlyDropOff = Auth::user()
-                ? Auth::user()->roles()->whereRaw('LOWER(title) = ?', ['owner'])->exists()
-                : false;
-
-            if (($isEarlyDropOff && !$canCreateEarlyDropOff) || $isLateDropOff) {
-                return back()->withErrors([
-                    'boarding_start_datetime' => 'Drop-off time must be between 7:30 AM and 5:30 PM.'
-                ])->withInput();
-            }
+            $isDropOffInvalid = $isEarlyDropOff || $isLateDropOff;
 
             $pickupMinutes = ((int) $endDateTime->format('H') * 60) + (int) $endDateTime->format('i');
-            if ($pickupMinutes < (7 * 60) + 30 || $pickupMinutes > (17 * 60) + 30) {
+            $isPickUpInvalid = $pickupMinutes < (7 * 60) + 30 || $pickupMinutes > (17 * 60) + 30;
+
+            if ($isDropOffInvalid && $isPickUpInvalid) {
                 return back()->withErrors([
-                    'boarding_end_datetime' => 'Pick-up time must be between 7:30 AM and 5:30 PM.'
+                    'boarding_start_datetime' => 'Drop off and Pick up must be between 7:30 AM and 5:30 PM.',
+                    'boarding_end_datetime' => 'Drop off and Pick up must be between 7:30 AM and 5:30 PM.',
+                ])->withInput();
+            }
+            if ($isPickUpInvalid) {
+                return back()->withErrors([
+                    'boarding_end_datetime' => 'Pick up must be before 5:30 PM.'
+                ])->withInput();
+            }
+            if ($isDropOffInvalid) {
+                return back()->withErrors([
+                    'boarding_start_datetime' => 'Drop off must be after 7:30 AM.'
                 ])->withInput();
             }
 
