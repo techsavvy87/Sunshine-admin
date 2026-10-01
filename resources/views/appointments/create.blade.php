@@ -122,12 +122,10 @@
           
           <div class="space-y-2" id="boarding_start_group">
             <label class="fieldset-label">Drop Off Date/Time*</label>
-            <p class="text-xs opacity-70">Business hours: 7:30 AM &ndash; 5:30 PM</p>
             <input type="datetime-local" class="input w-full" id="boarding_start_datetime" name="boarding_start_datetime" format="YYYY-MM-DD HH:mm" placeholder="Select drop off date/time" />
           </div>
           <div class="space-y-2" id="boarding_end_group">
             <label class="fieldset-label">Pick Up Date/Time*</label>
-            <p class="text-xs opacity-70">Business hours: 7:30 AM &ndash; 5:30 PM</p>
             <input type="datetime-local" class="input w-full" id="boarding_end_datetime" name="boarding_end_datetime" format="YYYY-MM-DD HH:mm" placeholder="Select drop off date/time" />
           </div>
           <div class="space-y-2" id="room_group">
