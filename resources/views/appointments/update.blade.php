@@ -1665,12 +1665,6 @@
       });
     }
 
-    @php
-      $canCreateEarlyBoardingDropoff = auth()->check()
-        && auth()->user()->roles()->whereRaw('LOWER(title) = ?', ['owner'])->exists();
-    @endphp
-
-    const canCreateEarlyBoardingDropoff = @json($canCreateEarlyBoardingDropoff);
 
     function getTotalMinutesFromDateTimeValue(dateTimeValue) {
       if (!dateTimeValue) {
@@ -1864,18 +1858,23 @@
         const boardingStartMinutes = getTotalMinutesFromDateTimeValue(boardingStart);
         const isEarlyDropOff = boardingStartMinutes !== null && boardingStartMinutes < ((7 * 60) + 30);
         const isLateDropOff = boardingStartMinutes !== null && boardingStartMinutes > ((17 * 60) + 30);
-        if (
-          boardingStartMinutes === null
-          || (isEarlyDropOff && !canCreateEarlyBoardingDropoff)
-          || isLateDropOff
-        ) {
-          $('#alert_message').text('Drop-off time must be between 7:30 AM and 5:30 PM.');
+        const isDropOffInvalid = boardingStartMinutes === null
+          || isEarlyDropOff
+          || isLateDropOff;
+        const isPickUpInvalid = !isWithinBusinessHours(boardingEnd);
+
+        if (isDropOffInvalid && isPickUpInvalid) {
+          $('#alert_message').text('Drop off and Pick up must be between 7:30 AM and 5:30 PM.');
           alert_modal.showModal();
           return;
         }
-
-        if (!isWithinBusinessHours(boardingEnd)) {
-          $('#alert_message').text('Pick-up time must be between 7:30 AM and 5:30 PM.');
+        if (isPickUpInvalid) {
+          $('#alert_message').text('Pick up must be before 5:30 PM.');
+          alert_modal.showModal();
+          return;
+        }
+        if (isDropOffInvalid) {
+          $('#alert_message').text('Drop off must be after 7:30 AM.');
           alert_modal.showModal();
           return;
         }
