@@ -164,6 +164,26 @@
       </form>
     </div>
     <div class="mt-4 space-y-4">
+      <div class="space-y-1">
+        <label class="fieldset-label" for="generate_service_toggle">Services</label>
+        <button type="button" class="select w-full text-start" id="generate_service_toggle" onclick="toggleGenerateServiceList()" aria-expanded="false" aria-controls="generate_service_list">
+          <span id="generate_service_summary" class="truncate">All Services</span>
+        </button>
+        <div id="generate_service_list" class="hidden max-h-56 overflow-y-auto rounded-box border border-base-300 p-2">
+          <label class="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 hover:bg-base-200">
+            <input type="checkbox" class="checkbox checkbox-sm" id="generate_service_all" checked onchange="onChangeGenerateServiceAll(this)" />
+            <span class="text-sm font-medium">All Services</span>
+          </label>
+          <div class="my-1 border-t border-base-300"></div>
+          @foreach($services as $service)
+          <label class="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 hover:bg-base-200">
+            <input type="checkbox" class="checkbox checkbox-sm generate-service-checkbox" value="{{ $service->id }}" data-name="{{ $service->name }}" onchange="onChangeGenerateService()" />
+            <span class="text-sm">{{ $service->name }}</span>
+          </label>
+          @endforeach
+        </div>
+        <p class="text-xs text-base-content/60">Check one or more services to generate time slots only for them (e.g. newly created services).</p>
+      </div>
       <div class="grid grid-cols-2 gap-4">
         <div class="space-y-1">
           <label class="fieldset-label" for="start_date">Start Date*</label>
@@ -272,6 +292,61 @@
   }
 
   function openGenerateModal() {
+    $('#generate_service_all').prop('checked', true);
+    $('.generate-service-checkbox').prop('checked', false);
+    $('#generate_service_list').addClass('hidden');
+    $('#generate_service_toggle').attr('aria-expanded', 'false');
+    updateGenerateServiceSummary();
+    resetGenerateDates(function() {
+      generate_modal.showModal();
+    });
+  }
+
+  function toggleGenerateServiceList() {
+    const $list = $('#generate_service_list');
+    $list.toggleClass('hidden');
+    $('#generate_service_toggle').attr('aria-expanded', $list.hasClass('hidden') ? 'false' : 'true');
+  }
+
+  // Empty array means all services
+  function getSelectedGenerateServiceIds() {
+    return $('.generate-service-checkbox:checked').map(function() {
+      return $(this).val();
+    }).get();
+  }
+
+  function updateGenerateServiceSummary() {
+    const names = $('.generate-service-checkbox:checked').map(function() {
+      return $(this).data('name');
+    }).get();
+    let summary = 'All Services';
+    if (names.length === 1 || names.length === 2) {
+      summary = names.join(', ');
+    } else if (names.length > 2) {
+      summary = `${names.length} services selected`;
+    }
+    $('#generate_service_summary').text(summary);
+  }
+
+  function onChangeGenerateServiceAll(ele) {
+    if ($(ele).is(':checked')) {
+      $('.generate-service-checkbox').prop('checked', false);
+    } else if (getSelectedGenerateServiceIds().length === 0) {
+      // "All Services" stays checked until a specific service is checked
+      $(ele).prop('checked', true);
+      return;
+    }
+    updateGenerateServiceSummary();
+    resetGenerateDates();
+  }
+
+  function onChangeGenerateService() {
+    $('#generate_service_all').prop('checked', getSelectedGenerateServiceIds().length === 0);
+    updateGenerateServiceSummary();
+    resetGenerateDates();
+  }
+
+  function resetGenerateDates(callback) {
     loadExistingTimeSlotDates(function() {
       const today = new Date();
       let startDate = new Date(today);
@@ -298,8 +373,8 @@
       $('#end_date').val(endDateStr);
       $('#holidays_list').addClass('hidden');
       $('#holidays_content').empty();
-      generate_modal.showModal();
-      
+      if (callback) callback();
+
       setTimeout(() => {
         loadHolidaysInRange(startDateStr, endDateStr);
       }, 100);
@@ -321,6 +396,9 @@
     $.ajax({
       url: '{{ route("get-existing-timeslot-dates") }}',
       method: 'GET',
+      data: {
+        service_ids: getSelectedGenerateServiceIds()
+      },
       headers: {
         'X-CSRF-TOKEN': '{{ csrf_token() }}'
       },
@@ -635,6 +713,7 @@
   function confirmGenerate() {
     const startDate = $('#start_date').val();
     const endDate = $('#end_date').val();
+    const serviceIds = getSelectedGenerateServiceIds();
 
     if (!startDate || !endDate) {
       showAlert('Please select both start and end dates.');
@@ -672,18 +751,22 @@
       method: 'POST',
       data: {
         start_date: startDate,
-        end_date: endDate
+        end_date: endDate,
+        service_ids: serviceIds
       },
       headers: {
         'X-CSRF-TOKEN': '{{ csrf_token() }}'
       },
       success: function(response) {
         closeGenerateModal();
+        const redirectUrl = serviceIds.length
+          ? `{{ route("timeslots") }}?serviceId=${serviceIds[0]}&date=${encodeURIComponent(startDate)}`
+          : '{{ route("timeslots") }}';
         if (response.status === 'success') {
-          window.location.href = '{{ route("timeslots") }}';
+          window.location.href = redirectUrl;
         } else {
           showAlert(response.message || 'Time slots generated with some issues.');
-          window.location.href = '{{ route("timeslots") }}';
+          window.location.href = redirectUrl;
         }
       },
       error: function(xhr) {

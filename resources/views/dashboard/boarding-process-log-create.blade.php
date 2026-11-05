@@ -52,6 +52,31 @@
         min-width: 0;
       }
     }
+    /* Below xl the sidebar (Process Steps) is hidden: show all tabs without horizontal scrolling */
+    @media (max-width: 1279.98px) {
+      .workflow-tabs {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 0.5rem;
+        overflow-x: visible;
+      }
+      .workflow-tabs .workflow-tab {
+        min-width: 0;
+      }
+      .workflow-tabs .workflow-tab .card-body {
+        padding: 0.5rem;
+      }
+    }
+    @media (min-width: 768px) and (max-width: 1279.98px) {
+      .workflow-tabs {
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+      }
+    }
+    .mobile-process-item.active {
+      border-color: var(--color-primary);
+      background-color: color-mix(in oklab, var(--color-primary) 10%, transparent);
+    }
+
     .workflow-tab.active {
       background-color: color-mix(in oklab, var(--color-primary) 5%, transparent);
       border: 1px solid hsl(var(--p) / 0.1);
@@ -186,6 +211,14 @@
                     <p class="text-sm font-medium">Reports</p>
                   </div>
                 </div>
+              </div>
+            </div>
+
+            {{-- Process Steps (below xl): the Overview sidebar with the step timeline is only shown on xl screens --}}
+            <div class="xl:hidden mb-6">
+              <p class="text-sm font-medium mb-2">Process Steps</p>
+              <div id="mobile_process_steps" class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <p class="text-sm text-base-content/70">Select a tab to view processes</p>
               </div>
             </div>
 
@@ -635,6 +668,10 @@
     const $processItem = $(`.process-item[data-process-id="${processId}"]`);
     // Update opacity to match completed state
     $processItem.removeClass('opacity-70').addClass('opacity-100');
+    const $mobileProcessItem = $(`.mobile-process-item[data-process-id="${processId}"]`);
+    $mobileProcessItem.removeClass('opacity-70').addClass('opacity-100');
+    $mobileProcessItem.find('.mobile-process-status').remove();
+    $mobileProcessItem.append(`<span class="mobile-process-status text-base-content/70 text-xs">${statusText}</span>`);
     const $statusElement = $processItem.find('.timeline-end p');
     if ($statusElement.length) {
       $statusElement.text(statusText);
@@ -664,6 +701,7 @@
           </div>
         </li>
       `);
+      $('#mobile_process_steps').html('<p class="text-sm text-base-content/70">No processes available for this tab</p>');
       return;
     }
 
@@ -703,6 +741,7 @@
     };
 
     let html = '';
+    let mobileHtml = '';
     processes.forEach((process, index) => {
       const colorClass = getProcessColor(process.id);
       const processData = workflowData[process.id];
@@ -726,15 +765,27 @@
           <hr />
         </li>
       `;
+
+      mobileHtml += `
+        <button type="button" class="mobile-process-item flex w-full items-center gap-3 rounded-box border border-base-300 bg-base-100 px-3 py-2 text-start ${isActive}" data-process-id="${process.id}">
+          <span class="${colorClass} flex items-center rounded-full p-2"><span class="iconify ${process.icon} size-4"></span></span>
+          <span class="flex-1 text-sm font-medium">${process.name}</span>
+          ${showCompleted ? `<span class="mobile-process-status text-base-content/70 text-xs">Completed</span>` : ''}
+        </button>
+      `;
     });
     
     $content.html(html);
+    $('#mobile_process_steps').html(mobileHtml);
 
-    $('.process-item').on('click', function() {
-      $('.process-item').removeClass('active');
-      $(this).addClass('active');
+    $('.process-item, .mobile-process-item').on('click', function() {
       currentProcessItem = $(this).data('process-id');
-      const stepTitle = $(this).find('.timeline-end span').first().text().trim();
+      $('.process-item, .mobile-process-item').removeClass('active');
+      $(`.process-item[data-process-id="${currentProcessItem}"], .mobile-process-item[data-process-id="${currentProcessItem}"]`).addClass('active');
+      const stepTitle = $(`.process-item[data-process-id="${currentProcessItem}"]`).find('.timeline-end span').first().text().trim();
+      if ($(this).hasClass('mobile-process-item')) {
+        document.getElementById('process_detail_title')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
       updateProcessDetailTitle(stepTitle || null);
       toggleTableColumns(currentProcessItem);
       loadPetDetails();

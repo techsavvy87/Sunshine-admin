@@ -84,15 +84,29 @@ class TimeSlotController extends Controller
 
     public function getExistingTimeSlotDates(Request $request)
     {
-        $today = Carbon::today()->toDateString();
+        $request->validate([
+            'service_ids' => 'nullable|array',
+            'service_ids.*' => 'integer|exists:services,id',
+        ]);
 
-        $latestTimeSlotEndDate = TimeSlot::whereDate('date', '>=', $today)
-            ->max('date');
-        
-        $existingDates = TimeSlot::whereDate('date', '>=', $today)
+        $today = Carbon::today()->toDateString();
+        $serviceIds = array_values(array_unique(array_map('intval', $request->input('service_ids', []))));
+
+        // With selected services, a date is "existing" only when every selected service already has slots on it
+        $existingDatesQuery = TimeSlot::whereDate('date', '>=', $today)
             ->selectRaw('DATE(date) as date')
-            ->distinct()
-            ->orderBy('date')
+            ->groupByRaw('DATE(date)')
+            ->orderBy('date');
+        if (!empty($serviceIds)) {
+            $existingDatesQuery->whereIn('service_id', $serviceIds)
+                ->havingRaw('COUNT(DISTINCT service_id) = ?', [count($serviceIds)]);
+        }
+
+        $latestTimeSlotEndDate = empty($serviceIds)
+            ? TimeSlot::whereDate('date', '>=', $today)->max('date')
+            : (clone $existingDatesQuery)->reorder()->orderByDesc('date')->value('date');
+
+        $existingDates = $existingDatesQuery
             ->pluck('date')
             ->map(function($date) {
                 return Carbon::parse($date)->format('Y-m-d');
@@ -121,6 +135,8 @@ class TimeSlotController extends Controller
         $request->validate([
             'start_date' => 'required|date',
             'end_date' => 'required|date|after_or_equal:start_date',
+            'service_ids' => 'nullable|array',
+            'service_ids.*' => 'integer|exists:services,id',
         ]);
 
         $startDate = Carbon::parse($request->start_date);
@@ -143,6 +159,17 @@ class TimeSlotController extends Controller
         $services = $allServices->filter(function ($service) {
             return !isBoardingService($service) && !isAlaCarteService($service) && !isGroupClassService($service);
         });
+
+        // Generate only for the selected services (e.g. newly created services)
+        if ($request->filled('service_ids')) {
+            $serviceIds = array_map('intval', $request->input('service_ids'));
+            $services = $services->whereIn('id', $serviceIds);
+            if ($services->isEmpty()) {
+                throw ValidationException::withMessages([
+                    'service_ids' => 'Time slots cannot be generated for the selected services.',
+                ]);
+            }
+        }
 
         $generatedDates = 0;
         $generatedServices = 0;

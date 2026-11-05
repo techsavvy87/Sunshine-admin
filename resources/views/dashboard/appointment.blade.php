@@ -3119,7 +3119,7 @@
                   <div id="boarding_workflow_content">
                     {{-- Daily process status matches boarding-process-log tabs: steps keyed by process id (e.g. food_prep_am, reports_am). --}}
                     <div id="boarding_workflow_steps_container" class="space-y-4" data-appointment-id="{{ $appointment->id ?? '' }}">
-                      <div class="border border-base-300 rounded-box overflow-hidden" data-section="am-feeding-meds">
+                      <div class="border border-base-300 rounded-box overflow-x-auto" data-section="am-feeding-meds">
                         <p class="font-medium p-3 pb-0">AM Feeding/Meds</p>
                         <table class="table table-sm table-fixed w-full">
                           <thead>
@@ -3134,7 +3134,7 @@
                           </tbody>
                         </table>
                       </div>
-                      <div class="border border-base-300 rounded-box overflow-hidden" data-section="nose-to-tail">
+                      <div class="border border-base-300 rounded-box overflow-x-auto" data-section="nose-to-tail">
                         <p class="font-medium p-3 pb-0">Nose to Tail</p>
                         <table class="table table-sm table-fixed w-full">
                           <thead>
@@ -3146,7 +3146,7 @@
                           </tbody>
                         </table>
                       </div>
-                      <div class="border border-base-300 rounded-box overflow-hidden" data-section="treatment-lunch-rest">
+                      <div class="border border-base-300 rounded-box overflow-x-auto" data-section="treatment-lunch-rest">
                         <p class="font-medium p-3 pb-0">Treatment/Lunch/Rest</p>
                         <table class="table table-sm table-fixed w-full">
                           <thead>
@@ -3160,7 +3160,7 @@
                           </tbody>
                         </table>
                       </div>
-                      <div class="border border-base-300 rounded-box overflow-hidden" data-section="pm-feeding-meds">
+                      <div class="border border-base-300 rounded-box overflow-x-auto" data-section="pm-feeding-meds">
                         <p class="font-medium p-3 pb-0">PM Feeding/Meds</p>
                         <table class="table table-sm table-fixed w-full">
                           <thead>
