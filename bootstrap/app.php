@@ -15,6 +15,11 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->alias([
             'ensure.permission' => \App\Http\Middleware\EnsureHasPermission::class,
+            'subscription' => \App\Http\Middleware\EnsureFacilitySubscribed::class,
+        ]);
+        $middleware->validateCsrfTokens(except: [
+            'stripe/subscription-webhook',
+            'stripe/webhook',
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

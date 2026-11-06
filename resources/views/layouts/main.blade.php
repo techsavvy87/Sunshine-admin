@@ -239,6 +239,12 @@
                   Discounts
                 </a>
                 @endif
+                @if (isFacilityOwner())
+                <a class="sidebar-menu-item" href="{{ route('subscription.index') }}">
+                  <span class="iconify lucide--credit-card size-4"></span>
+                  Subscription
+                </a>
+                @endif
               </div>
             </div>
             <div class="from-base-100/60 pointer-events-none absolute start-0 end-0 bottom-0 h-7 bg-linear-to-t to-transparent"></div>
@@ -360,6 +366,21 @@
 
         <!--  Start: Layout - Content -->
         <div id="layout-content">
+          @php
+            $graceSubscription = isFacilityOwner() && !request()->routeIs('subscription.*')
+              ? app(\App\Services\Subscription\FacilitySubscriptionService::class)->current()
+              : null;
+          @endphp
+          @if ($graceSubscription?->isInGracePeriod())
+          <div class="alert alert-warning alert-soft mb-3" role="alert">
+            <span class="iconify lucide--triangle-alert size-4"></span>
+            <span>
+              Your subscription payment failed. Update your payment method before
+              {{ $graceSubscription->grace_period_ends_at->format('M j, Y') }} to keep access.
+              <a href="{{ route('subscription.index') }}" class="link font-medium">Go to Subscription</a>
+            </span>
+          </div>
+          @endif
           @yield('content')
         </div>
         <!--  End: Layout - Content -->
