@@ -35,6 +35,8 @@ use App\Http\Controllers\web\PreCheckinController;
 use App\Http\Controllers\web\PaymentController;
 use App\Http\Controllers\web\AdminPaymentController;
 use App\Http\Controllers\web\StripeWebhookController;
+use App\Http\Controllers\web\SubscriptionController;
+use App\Http\Controllers\web\SubscriptionWebhookController;
 
 Route::controller(PreCheckinController::class)->group(function () {
     Route::get('/pre-checkin/{token}', 'show')->name('pre-checkin.show');
@@ -56,7 +58,8 @@ Route::controller(CustomerController::class)->group(function () {
     Route::delete('/customer-invite/pet-file/revert', 'revertInvitePetFileUpload')->name('revert-file-pet-invite');
 });
 
-Route::post('/webhook/stripe', [StripeWebhookController::class, 'handle'])->name('stripe.webhook')->withoutMiddleware(['csrf']);
+Route::post('/stripe/webhook', [StripeWebhookController::class, 'handle'])->name('stripe.webhook')->withoutMiddleware(['csrf']);
+Route::post('/stripe/subscription-webhook', [SubscriptionWebhookController::class, 'handle'])->name('stripe.subscription-webhook');
 
 Route::controller(AuthController::class)->group(function () {
     Route::get('/login', 'login')->name('login');
@@ -67,9 +70,20 @@ Route::controller(AuthController::class)->group(function () {
     Route::post('/reset/password', 'resetPassword')->name('reset-password');
 });
 
-Route::middleware(['auth'])->group(function () {
+Route::middleware(['auth', 'subscription'])->group(function () {
     Route::controller(AuthController::class)->group(function () {
         Route::get('/logout', 'logout')->name('logout');
+    });
+
+    // Reachable without an active subscription (see EnsureFacilitySubscribed).
+    Route::controller(SubscriptionController::class)->group(function () {
+        Route::get('/subscription/required', 'required')->name('subscription.required');
+        Route::get('/subscription', 'index')->name('subscription.index');
+        Route::post('/subscription/checkout', 'checkout')->name('subscription.checkout');
+        Route::get('/subscription/success', 'success')->name('subscription.success');
+        Route::post('/subscription/cancel', 'cancel')->name('subscription.cancel');
+        Route::post('/subscription/resume', 'resume')->name('subscription.resume');
+        Route::post('/subscription/portal', 'portal')->name('subscription.portal');
     });
 
     Route::controller(DashboardController::class)->group(function () {
